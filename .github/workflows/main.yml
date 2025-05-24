@@ -1,8 +1,8 @@
 name: Release
 on:
   push:
+  workflow_dispatch:
 #  release:
-#  workflow_dispatch:
 
 # required for uploading assets
 permissions:
@@ -23,6 +23,8 @@ jobs:
           flatpak build-bundle repo ChemCanvas.flatpak com.ksharindam.chemcanvas
 
       - uses: WyriHaximus/github-action-get-previous-tag@v1
+        with:
+          fallback: continuous
         id: latest-tag
 
       - name: Upload Release Assets
