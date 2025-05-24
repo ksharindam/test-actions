@@ -1,0 +1,2 @@
+include chemcanvas/templates/*
+include chemcanvas/periodic_table.csv
