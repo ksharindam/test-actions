@@ -23,8 +23,6 @@ jobs:
           flatpak build-bundle repo ChemCanvas.flatpak com.ksharindam.chemcanvas
 
       - uses: WyriHaximus/github-action-get-previous-tag@v1
-        with:
-          fallback: continuous
         id: latest-tag
 
       - name: Upload Release Assets
@@ -32,4 +30,4 @@ jobs:
         with:
           files: "ChemCanvas.flatpak"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          release-tag: ${{ steps.latest-tag.outputs.release }}
+          release-tag: ${{ steps.latest-tag.outputs.tag }}
