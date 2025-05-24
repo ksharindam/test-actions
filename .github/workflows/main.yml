@@ -17,11 +17,10 @@ jobs:
 
       - name: Build Flatpak
         run: |
-          echo "Empty file" > ChemCanvas.flatpak
-#          sudo apt install --no-install-recommends flatpak flatpak-builder
-#          flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-#          flatpak-builder --force-clean --repo=repo --user --install-deps-from=flathub builddir com.ksharindam.chemcanvas.yaml
-#          flatpak build-bundle repo ChemCanvas.flatpak com.ksharindam.chemcanvas
+          sudo apt install --no-install-recommends flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --force-clean --repo=repo --user --install-deps-from=flathub builddir com.ksharindam.chemcanvas.yaml
+          flatpak build-bundle repo ChemCanvas.flatpak com.ksharindam.chemcanvas
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
