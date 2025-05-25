@@ -20,7 +20,7 @@ jobs:
           sudo apt install --no-install-recommends flatpak flatpak-builder
           flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak-builder --force-clean --repo=repo --user --install-deps-from=flathub builddir com.ksharindam.chemcanvas.yaml
-          flatpak build-bundle repo ChemCanvas.flatpak com.ksharindam.chemcanvas
+          flatpak build-bundle repo ChemCanvas.flatpak com.ksharindam.chemcanvas --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
