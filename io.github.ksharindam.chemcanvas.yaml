@@ -18,7 +18,6 @@ finish-args:
   - --share=network
   - --share=ipc
   - --filesystem=home
-  - --filesystem=/media
   - --filesystem=xdg-data
 
 modules:
@@ -29,6 +28,7 @@ modules:
       - pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
       - pip3 install --no-build-isolation --prefix=/app .
       - install -Dm644 ./data/chemcanvas.svg /app/share/icons/hicolor/scalable/apps/io.github.ksharindam.chemcanvas.svg
+      - sed -i -e 's/^Icon=.*/Icon=io.github.ksharindam.chemcanvas/g' ./data/chemcanvas.desktop
       - install -Dm644 ./data/chemcanvas.desktop /app/share/applications/io.github.ksharindam.chemcanvas.desktop
     sources:
       - type: dir
