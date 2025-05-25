@@ -19,6 +19,7 @@ jobs:
         run: |
           sudo apt install --no-install-recommends flatpak
           flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.kde.Sdk/x86_64/5.15-24.08
           flatpak install --user -y flathub org.flatpak.Builder
           flatpak run org.flatpak.Builder --force-clean --repo=repo --user --install-deps-from=flathub builddir io.github.ksharindam.chemcanvas.yaml
           flatpak build-bundle repo ChemCanvas.flatpak io.github.ksharindam.chemcanvas --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
