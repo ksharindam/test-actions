@@ -28,7 +28,7 @@ modules:
       - pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc
       - pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
       - pip3 install --no-build-isolation --prefix=/app .
-      - install -Dm644 ./data/chemcanvas.png /app/share/icons/hicolor/scalable/apps/io.github.ksharindam.chemcanvas.png
+      - install -Dm644 ./data/chemcanvas.svg /app/share/icons/hicolor/scalable/apps/io.github.ksharindam.chemcanvas.svg
       - install -Dm644 ./data/chemcanvas.desktop /app/share/applications/io.github.ksharindam.chemcanvas.desktop
     sources:
       - type: dir
