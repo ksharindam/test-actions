@@ -1,4 +1,4 @@
-name: Release
+name: Build
 on:
   push:
   workflow_dispatch:
@@ -9,27 +9,32 @@ permissions:
   contents: write
 
 jobs:
-  flatpak:
-    runs-on: ubuntu-latest
+  exe:
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v3
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8.7'
+          cache: 'pip' # caching pip dependencies
 
-      - name: Build Flatpak
+      - name: Build ChemCanvas
         run: |
-          sudo apt install -y flatpak flatpak-builder
-          flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak-builder --force-clean --repo=repo --user --install-deps-from=flathub builddir io.github.ksharindam.chemcanvas.yaml
-          flatpak build-bundle repo ChemCanvas.flatpak io.github.ksharindam.chemcanvas --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+          pip3 install PyQt5
+          pip3 install pyinstaller
+          cd Windows
+          pyinstaller chemcanvas.spec
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
         with:
           repository: ${{ github.repository }}
 
-      - name: Upload Release Assets
-        uses: AButler/upload-release-assets@v3.0
-        with:
-          files: "ChemCanvas.flatpak"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          release-tag: ${{ steps.latest-tag.outputs.release }}
+#      - name: Upload Release Assets
+#        uses: AButler/upload-release-assets@v3.0
+#        with:
+#          files: "ChemCanvas.flatpak"
+#          repo-token: ${{ secrets.GITHUB_TOKEN }}
+#          release-tag: ${{ steps.latest-tag.outputs.release }}
