@@ -26,14 +26,19 @@ jobs:
           cd Windows
           pyinstaller chemcanvas.spec
 
+      - name: Create installer
+        uses: joncloud/makensis-action@v4.1
+        with:
+          script-file: ChemCanvas.nsi
+
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
         with:
           repository: ${{ github.repository }}
 
-#      - name: Upload Release Assets
-#        uses: AButler/upload-release-assets@v3.0
-#        with:
-#          files: "ChemCanvas.flatpak"
-#          repo-token: ${{ secrets.GITHUB_TOKEN }}
-#          release-tag: ${{ steps.latest-tag.outputs.release }}
+      - name: Upload Release Assets
+        uses: AButler/upload-release-assets@v3.0
+        with:
+          files: "*.exe"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          release-tag: ${{ steps.latest-tag.outputs.release }}
