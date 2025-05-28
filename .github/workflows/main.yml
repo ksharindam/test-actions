@@ -9,29 +9,19 @@ permissions:
   contents: write
 
 jobs:
-  exe:
-    runs-on: windows-latest
+  snap:
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
-      
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.8.7'
 
-      - name: Build ChemCanvas
-        run: |
-          pip3 install PyQt5
-          pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc
-          pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
-          pip3 install pyinstaller
-          cd Windows
-          pyinstaller chemcanvas.spec
+      - name: Build Snap
+        uses: snapcore/action-build@v1
+        id: build-snap
 
-      - name: Create Exe
-        uses: joncloud/makensis-action@v4.1
-        with:
-          script-file: ./Windows/ChemCanvas.nsi
+      - name: Rename Snap
+        run:
+          - mv "${{ steps.build-snap.outputs.snap }}" ChemCanvas.snap
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
@@ -41,6 +31,6 @@ jobs:
       - name: Upload Release Assets
         uses: AButler/upload-release-assets@v3.0
         with:
-          files: "Windows/*.exe"
+          files: "ChemCanvas.snap"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ steps.latest-tag.outputs.release }}
