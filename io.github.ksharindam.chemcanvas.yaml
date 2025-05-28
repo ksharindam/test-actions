@@ -13,12 +13,8 @@ command: chemcanvas
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
-  - --socket=cups
   - --device=dri
-  - --share=network
   - --share=ipc
-  - --filesystem=home
-  - --filesystem=xdg-data
 
 modules:
   - name: chemcanvas
