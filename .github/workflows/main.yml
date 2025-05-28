@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  snap:
+  flatpak:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +22,7 @@ jobs:
           flatpak-builder --force-clean --mirror-screenshots-url=https://dl.flathub.org/media/ --repo=repo --user --install-deps-from=flathub builddir io.github.ksharindam.chemcanvas.yaml
           flatpak build-bundle repo ChemCanvas.flatpak io.github.ksharindam.chemcanvas --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.flatpak.Builder
-          flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder --exceptions repo repo
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
