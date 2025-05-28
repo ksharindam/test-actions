@@ -15,13 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Build Snap
-        uses: snapcore/action-build@v1
-        id: build-snap
-
-      - name: Rename Snap
+      - name: Build Flatpak
         run: |
-          mv "${{ steps.build-snap.outputs.snap }}" ChemCanvas.snap
+          sudo apt install flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --force-clean --repo=repo --user --install-deps-from=flathub builddir io.github.ksharindam.chemcanvas.yaml
+          flatpak build-bundle repo ChemCanvas.flatpak io.github.ksharindam.chemcanvas --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.flatpak.Builder
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
@@ -31,6 +32,6 @@ jobs:
       - name: Upload Release Assets
         uses: AButler/upload-release-assets@v3.0
         with:
-          files: "ChemCanvas.snap"
+          files: "ChemCanvas.flatpak"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ steps.latest-tag.outputs.release }}

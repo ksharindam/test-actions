@@ -4,11 +4,12 @@
   <id>io.github.ksharindam.chemcanvas</id>
   <metadata_license>FSFAP</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.ksharindam">
+    <name>Arindam Chaudhuri</name>
+  </developer>
 
   <name>ChemCanvas</name>
   <summary>Chemical Structure Drawing Tool</summary>
-  <developer_name>Arindam Chaudhuri</developer_name>
-
   <description>
     <p>
       A very intuitive and easy to use 2D chemical structure drawing tool.
@@ -24,7 +25,6 @@
       <li>Easy coloring tool</li>
       <li>Aromaticity detection and add delocalization ring</li>
      </ul>
-
   </description>
 
   <categories>
@@ -32,24 +32,34 @@
     <category>Science</category>
     <category>Chemistry</category>
   </categories>
-
   <launchable type="desktop-id">io.github.ksharindam.chemcanvas.desktop</launchable>
+  <url type="homepage">https://ksharindam.github.io/chemcanvas/</url>
+
+  <releases>
+    <release version="0.7.28" date="2025-05-27">
+      <description>
+        <ul>
+          <li>Add Harpoon, Circular, Hollow, No-Reaction, Reversible arrow types</li>
+          <li>Show invisible carbon between two double bonds as a dot</li>
+          <li>Merge ArrowTool and PlusTool</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
 
   <screenshots>
     <screenshot type="default">
         <caption>Screenshot 1</caption>
-        <image>https://github.com/ksharindam/chemcanvas/raw/main/data/screenshots/Screenshot1.jpg</image>
+        <image>https://github.com/ksharindam/chemcanvas/releases/download/data/Screenshot1.png</image>
       </screenshot>
     <screenshot>
         <caption>Screenshot 2</caption>
-        <image>https://github.com/ksharindam/chemcanvas/raw/main/data/screenshots/Screenshot2.jpg</image>
+        <image>https://github.com/ksharindam/chemcanvas/releases/download/data/Screenshot2.png</image>
       </screenshot>
     <screenshot>
         <caption>Screenshot 3</caption>
-        <image>https://github.com/ksharindam/chemcanvas/raw/main/data/screenshots/Screenshot3.jpg</image>
+        <image>https://github.com/ksharindam/chemcanvas/releases/download/data/Screenshot3.png</image>
       </screenshot>
     </screenshots>
-
-  <url type="homepage">https://ksharindam.github.io/chemcanvas/</url>
 
 </component>

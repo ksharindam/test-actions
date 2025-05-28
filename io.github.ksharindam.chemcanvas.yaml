@@ -13,9 +13,12 @@ command: chemcanvas
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
+  - --socket=cups
   - --device=dri
   - --share=network
   - --share=ipc
+  - --filesystem=home
+  - --filesystem=xdg-data
 
 modules:
   - name: chemcanvas
@@ -27,7 +30,5 @@ modules:
       - install -Dm644 ./data/chemcanvas.desktop /app/share/applications/io.github.ksharindam.chemcanvas.desktop
       - install -Dm644 ./data/io.github.ksharindam.chemcanvas.metainfo.xml /app/share/metainfo/
     sources:
-      - type: git
-        url: https://github.com/ksharindam/chemcanvas.git
-        commit: 289b4fbc6b981446e0279fc8398e680c0e579789
-
+      - type: dir
+        path: .
