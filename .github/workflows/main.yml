@@ -20,8 +20,8 @@ jobs:
         id: build-snap
 
       - name: Rename Snap
-        run:
-          - mv "${{ steps.build-snap.outputs.snap }}" ChemCanvas.snap
+        run: |
+          mv "${{ steps.build-snap.outputs.snap }}" ChemCanvas.snap
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
