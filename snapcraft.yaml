@@ -44,6 +44,6 @@ parts:
       - meta/gui/chemcanvas.svg
       - meta/gui/chemcanvas.desktop
     override-prime: |
-      desktop-file-edit --set-icon=${SNAP}/meta/gui/chemcanvas.svg $SNAPCRAFT_STAGE/meta/gui/chemcanvas.desktop
+      sed -i -e 's\^Icon=.*\Icon=${SNAP}/meta/gui/chemcanvas.svg\g' $SNAPCRAFT_STAGE/meta/gui/chemcanvas.desktop
       craftctl default
 
