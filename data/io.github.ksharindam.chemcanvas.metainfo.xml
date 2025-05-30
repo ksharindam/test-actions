@@ -9,7 +9,7 @@
   </developer>
 
   <name>ChemCanvas</name>
-  <summary>Chemical Structure Drawing Tool</summary>
+  <summary>Chemical structure drawing tool</summary>
   <description>
     <p>
       A very intuitive and easy to use 2D chemical structure drawing tool.
@@ -28,13 +28,16 @@
   </description>
 
   <categories>
-    <category>Education</category>
     <category>Science</category>
-    <category>Chemistry</category>
   </categories>
   <launchable type="desktop-id">io.github.ksharindam.chemcanvas.desktop</launchable>
   <url type="homepage">https://ksharindam.github.io/chemcanvas/</url>
   <content_rating type="oars-1.0" />
+
+  <branding>
+    <color type="primary" scheme_preference="light">#f5f5b4</color>
+    <color type="primary" scheme_preference="dark">#757500</color>
+  </branding>
 
   <releases>
     <release version="0.7.28" date="2025-05-27">
@@ -51,15 +54,15 @@
   <screenshots>
     <screenshot type="default">
         <caption>Screenshot 1</caption>
-        <image>https://github.com/ksharindam/chemcanvas/releases/download/data/Screenshot1.png</image>
+        <image>https://github.com/ksharindam/chemcanvas-data/raw/main/Screenshots/screenshot1.png</image>
       </screenshot>
     <screenshot>
         <caption>Screenshot 2</caption>
-        <image>https://github.com/ksharindam/chemcanvas/releases/download/data/Screenshot2.png</image>
+        <image>https://github.com/ksharindam/chemcanvas-data/raw/main/Screenshots/screenshot2.png</image>
       </screenshot>
     <screenshot>
         <caption>Screenshot 3</caption>
-        <image>https://github.com/ksharindam/chemcanvas/releases/download/data/Screenshot3.png</image>
+        <image>https://github.com/ksharindam/chemcanvas-data/raw/main/Screenshots/screenshot3.png</image>
       </screenshot>
     </screenshots>
 
