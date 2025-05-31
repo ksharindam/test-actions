@@ -1,6 +1,6 @@
 name: chemcanvas
 version: '0.7.28'
-summary: Very user-friendly 2D chemical drawing tool
+summary: Chemical structure drawing tool
 description: |
   A very intuitive 2D chemical drawing tool. You can quickly draw molecules,
   reactions with modern bond and arrow types, large set of templates,
@@ -22,7 +22,8 @@ apps:
   chemcanvas:
     command: bin/chemcanvas
     # allows access to system resources (eg. fonts), home directory and network
-    plugs: [desktop, wayland, unity7, home, dot-local, removable-media, network, opengl]
+    #plugs: [desktop, wayland, unity7, home, dot-local, removable-media, network, opengl]
+    plugs: [desktop, wayland, unity7, network, opengl]
     environment:
       PYTHONPATH: $SNAP/usr/lib/python3/dist-packages:${PYTHONPATH}
       QT_PLUGIN_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt5/plugins
