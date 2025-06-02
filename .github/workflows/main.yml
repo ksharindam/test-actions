@@ -76,10 +76,10 @@ jobs:
           pip3 install pyinstaller
 
       - name: Build ChemCanvas
+        working-directory: ./Windows
         run: |
-          pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc
-          pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
-          cd Windows
+          pyrcc5 -o ../chemcanvas/resources_rc.py ../data/resources.qrc
+          pyuic5 -o ../chemcanvas/ui_mainwindow.py ../data/mainwindow.ui
           pyinstaller chemcanvas.spec
 
       - name: Create Exe Installer
