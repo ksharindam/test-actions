@@ -94,8 +94,9 @@ jobs:
 
       - name: Upload Release Assets
         uses: AButler/upload-release-assets@v3.0
+        working-directory: ./Windows
         with:
-          files: "Windows/*.exe"
+          files: "*.exe"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ steps.latest-tag.outputs.release }}
 
