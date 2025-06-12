@@ -38,7 +38,7 @@ set -eux
 apt update
 apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget git gcc
 
-pip3 install -y pyinstaller
+pip3 install pyinstaller
 wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
 wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
 
