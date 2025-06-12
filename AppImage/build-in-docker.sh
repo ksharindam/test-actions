@@ -27,7 +27,7 @@ docker run \
     -e GITHUB_ACTIONS \
     -e GITHUB_RUN_NUMBER \
     -e OUT_UID="$uid" \
-    -v "$repo_root":/source:ro \
+    -v "$repo_root":/source \
     -v "$PWD":/out \
     -w /out \
     "$image" \
