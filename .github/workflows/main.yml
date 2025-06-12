@@ -9,18 +9,16 @@ permissions:
   contents: write
 
 jobs:
-  flatpak:
+  AppImage:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Build Flatpak
+      - name: Build AppImage
         run: |
-          sudo apt install flatpak flatpak-builder
-          flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak-builder --force-clean --repo=repo --user --install-deps-from=flathub builddir io.github.ksharindam.chemcanvas.yaml
-          flatpak build-bundle repo ChemCanvas.flatpak io.github.ksharindam.chemcanvas --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+          cd AppImage
+          bash -ex build-in-docker.sh
 
       - uses: pozetroninc/github-action-get-latest-release@master
         id: latest-tag
@@ -30,68 +28,7 @@ jobs:
       - name: Upload Release Assets
         uses: AButler/upload-release-assets@v3.0
         with:
-          files: "ChemCanvas.flatpak"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          release-tag: ${{ steps.latest-tag.outputs.release }}
-
-  snap:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Build Snap
-        uses: snapcore/action-build@v1
-        id: build-snap
-
-      - uses: pozetroninc/github-action-get-latest-release@master
-        id: latest-tag
-        with:
-          repository: ${{ github.repository }}
-
-      - name: Upload Release Assets
-        uses: AButler/upload-release-assets@v3.0
-        with:
-          files: "${{ steps.build-snap.outputs.snap }}"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          release-tag: ${{ steps.latest-tag.outputs.release }}
-
-  exe:
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.8.7'
-
-      - name: Install Dependencies
-        run: |
-          pip3 install PyQt5
-          pip3 install pyinstaller
-
-      - name: Build ChemCanvas
-        working-directory: ./Windows
-        run: |
-          pyrcc5 -o ../chemcanvas/resources_rc.py ../data/resources.qrc
-          pyuic5 -o ../chemcanvas/ui_mainwindow.py ../data/mainwindow.ui
-          pyinstaller chemcanvas.spec
-
-      - name: Create Exe Installer
-        uses: joncloud/makensis-action@v4.1
-        with:
-          script-file: ./Windows/ChemCanvas.nsi
-
-      - uses: pozetroninc/github-action-get-latest-release@master
-        id: latest-tag
-        with:
-          repository: ${{ github.repository }}
-
-      - name: Upload Release Assets
-        uses: AButler/upload-release-assets@v3.0
-        with:
-          files: "./Windows/ChemCanvas.exe"
+          files: "AppImage/ChemCanvas-x86_64.AppImage"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ steps.latest-tag.outputs.release }}
 
