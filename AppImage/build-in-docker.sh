@@ -36,7 +36,7 @@ docker run \
 set -eux
 
 apt update
-apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget git gcc
+apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget gcc file
 
 pip3 install pyinstaller
 wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
