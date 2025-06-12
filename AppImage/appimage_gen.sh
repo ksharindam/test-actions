@@ -5,7 +5,7 @@ check_dep()
   DEP=$1
   if [ -z $(which $DEP) ] ; then
     echo "Error : $DEP command not found"
-    exit 0
+    exit 1
   fi
 }
 
@@ -19,8 +19,8 @@ check_dep pyinstaller
 
 MULTIARCH=`gcc -dumpmachine`
 LIBDIR=lib/${MULTIARCH}
-PYVERSION="3.7"
 
+# enables running from different directory
 AppDirParent="$(readlink -f "$(dirname "$0")")"
 cd "$AppDirParent"
 

@@ -4,7 +4,7 @@ set -euxo pipefail
 
 ARCH=x86_64
 platform=linux/amd64
-image=ubuntu:22.04
+image=ubuntu:20.04
 
 repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 
@@ -14,11 +14,8 @@ repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 uid="$(id -u)"
 
 # make sure Docker image is up to date
-#docker pull "$image"
+docker pull "$image"
 
-# mount workspace read-only, trying to make sure the build doesn't ever touch the source code files
-# of course, this only works reliably if you don't run this script from that directory
-# but it's still not the worst idea to do so
 docker run \
     --platform "$platform" \
     --rm \
@@ -45,11 +42,6 @@ wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous
 chmod 755 *.AppImage
 mv appimagetool*AppImage /usr/bin/appimagetool
 mv linuxdeploy*AppImage /usr/bin/linuxdeploy
-
-
-
-# in a Docker container, we can safely disable this check
-#git config --global --add safe.directory '*'
 
 bash -eux /source/AppImage/appimage_gen.sh
 
