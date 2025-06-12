@@ -52,17 +52,17 @@ sed -i -e 's\^BIN=.*\BIN="usr/lib/chemcanvas/chemcanvas"\g' AppRun
 cp -r ../dist/chemcanvas usr/lib
 ln -s ../lib/chemcanvas/chemcanvas usr/bin/chemcanvas
 # remove excess library files
-rm -r usr/lib/chemcanvas/_internal/*.so*
-rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt5/plugins/*
-rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt5/translations
+#rm -r usr/lib/chemcanvas/_internal/*.so*
+#rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt5/plugins/*
+#rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt5/translations
 # copy some required files we deleted earlier
-cp ../dist/chemcanvas/_internal/libpython* usr/lib/chemcanvas/_internal
+#cp ../dist/chemcanvas/_internal/libpython* usr/lib/chemcanvas/_internal
 # ------- copy Qt5 Plugins ---------
-QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/_internal/PyQt5/Qt5/plugins
-QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/_internal/PyQt5/Qt5/plugins
+#QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/_internal/PyQt5/Qt5/plugins
+#QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/_internal/PyQt5/Qt5/plugins
 # this is most necessary plugin for x11 support. without it application won't launch
-mkdir -p ${QT_PLUGIN_PATH}/platforms
-cp ${QT_PLUGIN_SRC}/platforms/libqxcb.so ${QT_PLUGIN_PATH}/platforms
+#mkdir -p ${QT_PLUGIN_PATH}/platforms
+#cp ${QT_PLUGIN_SRC}/platforms/libqxcb.so ${QT_PLUGIN_PATH}/platforms
 
 # Wayland support
 #cp ${QT_PLUGIN_SRC}/platforms/libqwayland-generic.so ${QT_PLUGIN_PATH}/platforms
