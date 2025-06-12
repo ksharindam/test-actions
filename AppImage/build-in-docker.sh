@@ -53,6 +53,6 @@ mv linuxdeploy*AppImage /usr/bin/linuxdeploy
 
 bash -eux /source/AppImage/appimage_gen.sh
 
-chown "$OUT_UID" appimagetool*.AppImage
+chown "$OUT_UID" ChemCanvas*.AppImage
 
 EOF
