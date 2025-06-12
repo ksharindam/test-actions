@@ -49,7 +49,7 @@ mv linuxdeploy*AppImage /usr/bin/linuxdeploy
 
 
 # in a Docker container, we can safely disable this check
-git config --global --add safe.directory '*'
+#git config --global --add safe.directory '*'
 
 bash -eux /source/AppImage/appimage_gen.sh
 
