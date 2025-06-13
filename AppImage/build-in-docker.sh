@@ -33,6 +33,7 @@ docker run \
 set -eux
 
 apt update
+# prevent tzdata from asking timezone during install
 DEBIAN_FRONTEND=noninteractive TZ="Asia/Kolkata" apt install -y tzdata
 apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget gcc file
 
