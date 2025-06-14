@@ -37,8 +37,8 @@ apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget file tree
 wget -q "https://github.com/ksharindam/test-actions/releases/download/continuous/pyinstaller-4.3-py3-none-linux_armv7l.whl"
 pip3 install ./pyinstaller-4.3-py3-none-linux_armv7l.whl
 
-wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
-wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-armhf.AppImage"
+wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-armhf.AppImage"
 
 
 chmod 755 *.AppImage
