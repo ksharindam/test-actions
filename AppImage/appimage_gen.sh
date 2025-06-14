@@ -27,6 +27,7 @@ pyuic5 -o ../chemcanvas/ui_mainwindow.py ../data/mainwindow.ui
 # run pyinstaller
 pyinstaller ../Windows/chemcanvas.spec
 rm -r build
+tree dist
 
 
 mkdir -p AppDir/usr/bin
