@@ -16,6 +16,8 @@ jobs:
         include:
           - ARCH: x86_64
             RUNS_ON: ubuntu-latest
+          - ARCH: aarch64
+            RUNS_ON: ubuntu-24.04-arm
           - ARCH: armhf
             RUNS_ON: ubuntu-24.04-arm
 
