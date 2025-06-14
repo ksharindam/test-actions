@@ -2,8 +2,7 @@
 
 set -euxo pipefail
 
-ARCH=x86_64
-platform=linux/amd64
+platform=linux/arm32v7
 image=ubuntu:20.04
 
 repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
@@ -14,15 +13,12 @@ repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 uid="$(id -u)"
 
 # make sure Docker image is up to date
-docker pull "$image"
+docker pull "arm32v7/$image"
 
 docker run \
     --platform "$platform" \
     --rm \
     -i \
-    -e ARCH \
-    -e GITHUB_ACTIONS \
-    -e GITHUB_RUN_NUMBER \
     -e OUT_UID="$uid" \
     -v "$repo_root":/source \
     -v "$PWD":/out \
@@ -35,11 +31,14 @@ set -eux
 apt update
 # prevent tzdata from asking timezone during install
 DEBIAN_FRONTEND=noninteractive TZ="Asia/Kolkata" apt install -y tzdata
-apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget gcc file
+apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget file tree
 
-pip3 install pyinstaller
+wget -q "https://github.com/pyinstaller/pyinstaller/releases/download/v4.3/pyinstaller-4.3-py3-none-linux_armv7l.whl"
+pip3 install --user ./pyinstaller-4.3-py3-none-linux_armv7l.whl
+
 wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
 wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+
 
 chmod 755 *.AppImage
 mv appimagetool*AppImage /usr/bin/appimagetool

@@ -11,14 +11,11 @@ check_dep()
 
 check_dep appimagetool
 check_dep linuxdeploy
-check_dep gcc
-check_dep pyrcc5
 check_dep pyuic5
 check_dep pyinstaller
 
 
-MULTIARCH=`gcc -dumpmachine`
-LIBDIR=lib/${MULTIARCH}
+#MULTIARCH=`gcc -dumpmachine`
 
 # enables running from different directory
 AppDirParent="$(readlink -f "$(dirname "$0")")"
@@ -51,14 +48,14 @@ sed -i -e 's\^BIN=.*\BIN="usr/lib/chemcanvas/chemcanvas"\g' AppRun
 # copy pyinstaller generated files
 cp -r ../dist/chemcanvas usr/lib
 # remove excess library files
-rm -r usr/lib/chemcanvas/_internal/lib*.so.*
-rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt/plugins/*
-rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt/translations
+rm -r usr/lib/chemcanvas/lib*.so*
+rm -r usr/lib/chemcanvas/PyQt5/Qt/plugins/*
+#rm -r usr/lib/chemcanvas/PyQt5/Qt/translations
 # copy some required files we deleted earlier
-#cp ../dist/chemcanvas/_internal/libpython* usr/lib/chemcanvas/_internal
+cp ../dist/chemcanvas/libpython* usr/lib/chemcanvas
 # ------- copy Qt5 Plugins ---------
-QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/_internal/PyQt5/Qt/plugins
-QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/_internal/PyQt5/Qt/plugins
+QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/PyQt5/Qt/plugins
+QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/PyQt5/Qt/plugins
 # this is most necessary plugin for x11 support. without it application won't launch
 mkdir -p ${QT_PLUGIN_PATH}/platforms
 cp ${QT_PLUGIN_SRC}/platforms/libqxcb.so ${QT_PLUGIN_PATH}/platforms
@@ -73,13 +70,13 @@ cp ${QT_PLUGIN_SRC}/platforms/libqxcb.so ${QT_PLUGIN_PATH}/platforms
 
 # ----- End of Copy Qt5 Plugins ------
 
-#cp /usr/${LIBDIR}/libssl.so.1.0.2 usr/lib
-#cp /usr/${LIBDIR}/libcrypto.so.1.0.2 usr/lib
+#cp /usr/lib/${MULTIARCH}/libssl.so.1.0.2 usr/lib
+#cp /usr/lib/${MULTIARCH}/libcrypto.so.1.0.2 usr/lib
 
 # cleanup
 rm -r ${APPDIR}/../dist
 
-# Deploy dependencies
+# Deploy dependencies (--appimage-extract-and-run option is for docker)
 linuxdeploy --appimage-extract-and-run --appdir .  --icon-file=../../data/chemcanvas.svg
 
 # compile python bytecodes
