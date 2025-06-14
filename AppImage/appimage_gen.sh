@@ -27,7 +27,6 @@ pyuic5 -o ../chemcanvas/ui_mainwindow.py ../data/mainwindow.ui
 # run pyinstaller
 pyinstaller ../Windows/chemcanvas.spec
 rm -r build
-tree dist
 
 
 mkdir -p AppDir/usr/bin
@@ -49,14 +48,14 @@ sed -i -e 's\^BIN=.*\BIN="usr/lib/chemcanvas/chemcanvas"\g' AppRun
 # copy pyinstaller generated files
 cp -r ../dist/chemcanvas usr/lib
 # remove excess library files
-rm -r usr/lib/chemcanvas/lib*.so*
-rm -r usr/lib/chemcanvas/PyQt5/Qt/plugins/*
-#rm -r usr/lib/chemcanvas/PyQt5/Qt/translations
+rm -r usr/lib/chemcanvas/_internal/lib*.so.*
+rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt/plugins/*
+rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt/translations
 # copy some required files we deleted earlier
-cp ../dist/chemcanvas/libpython* usr/lib/chemcanvas
+#cp ../dist/chemcanvas/_internal/libpython* usr/lib/chemcanvas/_internal
 # ------- copy Qt5 Plugins ---------
-QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/PyQt5/Qt/plugins
-QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/PyQt5/Qt/plugins
+QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/_internal/PyQt5/Qt/plugins
+QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/_internal/PyQt5/Qt/plugins
 # this is most necessary plugin for x11 support. without it application won't launch
 mkdir -p ${QT_PLUGIN_PATH}/platforms
 cp ${QT_PLUGIN_SRC}/platforms/libqxcb.so ${QT_PLUGIN_PATH}/platforms

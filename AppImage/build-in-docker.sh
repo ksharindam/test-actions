@@ -13,7 +13,7 @@ repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 uid="$(id -u)"
 
 # make sure Docker image is up to date
-#docker pull "arm32v7/$image"
+#docker pull "$image"
 
 docker run \
     --platform "$platform" \
