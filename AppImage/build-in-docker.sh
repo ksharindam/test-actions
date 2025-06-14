@@ -2,8 +2,8 @@
 
 set -euxo pipefail
 
-platform=linux/arm32v7
-image="arm32v7/ubuntu:20.04"
+platform=linux/arm/v7
+image=ubuntu:20.04
 
 repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 
@@ -13,7 +13,7 @@ repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 uid="$(id -u)"
 
 # make sure Docker image is up to date
-docker pull "$image"
+docker pull "arm32v7/$image"
 
 docker run \
     --platform "$platform" \
