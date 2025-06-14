@@ -17,7 +17,7 @@ check_dep pyinstaller
 
 #MULTIARCH=`gcc -dumpmachine`
 
-# enables running from different directory
+# enables running this script from different directory
 AppDirParent="$(readlink -f "$(dirname "$0")")"
 cd "$AppDirParent"
 
@@ -43,7 +43,6 @@ APPDIR=`pwd`
 cp ../../data/chemcanvas.desktop usr/share/applications/io.github.ksharindam.chemcanvas.desktop
 cp ../../data/io.github.ksharindam.chemcanvas.metainfo.xml usr/share/metainfo
 cp ../AppRun .
-sed -i -e 's\^BIN=.*\BIN="usr/lib/chemcanvas/chemcanvas"\g' AppRun
 
 # copy pyinstaller generated files
 cp -r ../dist/chemcanvas usr/lib
