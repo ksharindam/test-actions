@@ -52,7 +52,7 @@ rm -r usr/lib/chemcanvas/_internal/lib*.so.*
 rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt/plugins/*
 rm -r usr/lib/chemcanvas/_internal/PyQt5/Qt/translations
 # copy some required files we deleted earlier
-#cp ../dist/chemcanvas/_internal/libpython* usr/lib/chemcanvas/_internal
+cp ../dist/chemcanvas/_internal/libpython* usr/lib/chemcanvas/_internal
 # ------- copy Qt5 Plugins ---------
 QT_PLUGIN_PATH=${APPDIR}/usr/lib/chemcanvas/_internal/PyQt5/Qt/plugins
 QT_PLUGIN_SRC=${APPDIR}/../dist/chemcanvas/_internal/PyQt5/Qt/plugins
