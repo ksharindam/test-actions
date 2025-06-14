@@ -2,8 +2,24 @@
 
 set -euxo pipefail
 
-platform=linux/arm/v7
 image=ubuntu:20.04
+
+case "$ARCH" in
+    x86_64)
+        platform=linux/amd64
+        ;;
+    armhf)
+        platform=linux/arm/v7
+        ;;
+    aarch64)
+        platform=linux/arm64/v8
+        ;;
+    *)
+        echo "unknown architecture: $ARCH"
+        exit 2
+        ;;
+esac
+
 
 repo_root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")"/..)"
 
@@ -19,6 +35,7 @@ docker run \
     --platform "$platform" \
     --rm \
     -i \
+    -e ARCH \
     -e OUT_UID="$uid" \
     -v "$repo_root":/source \
     -v "$PWD":/out \
@@ -31,14 +48,14 @@ set -eux
 apt update
 # prevent tzdata from asking timezone during install
 DEBIAN_FRONTEND=noninteractive TZ="Asia/Kolkata" apt install -y tzdata
-apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget file tree
+apt install -y python3-pyqt5 pyqt5-dev-tools python3 python3-pip wget file
 
-# wget -q "https://github.com/pyinstaller/pyinstaller/releases/download/v4.3/pyinstaller-4.3-py3-none-linux_armv7l.whl"
+# armhf bootloader is from "https://github.com/pyinstaller/pyinstaller/releases/download/v4.3/pyinstaller-4.3-py3-none-linux_armv7l.whl"
 wget -q "https://github.com/ksharindam/test-actions/releases/download/continuous/pyinstaller-6.14.1-py3-none-any.whl"
 pip3 install ./pyinstaller*.whl
 
-wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-armhf.AppImage"
-wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-armhf.AppImage"
+wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"
+wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${ARCH}.AppImage"
 
 
 chmod 755 *.AppImage
