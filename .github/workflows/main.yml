@@ -31,12 +31,4 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ steps.latest-tag.outputs.release }}
 
-      - name: Publish to Snap Store
-        uses: snapcore/action-publish@v1
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_LOGIN }}
-        with:
-          snap: ${{ steps.build-snap.outputs.snap }}
-          release: stable
-
 
