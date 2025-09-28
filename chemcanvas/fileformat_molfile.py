@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
 # Copyright (C) 2024-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
-from tools import create_new_mark_in_atom
-from coords_generator import place_molecule
-from fileformat import *
-
 import os, time
 import re
+import io
+
+from tool_helpers import place_molecule
+from fileformat import *
 
 # Supported Features
 # read-write of only V2000 connection table. V3000 not supported
@@ -18,7 +18,7 @@ import re
 # - Need to expand functional group
 
 class Molfile(FileFormat):
-    readable_formats = [("MDL Molfile", "mol")]
+    readable_formats = [("MDL Molfile", "mol"), ("MDL SDfile", "sdf")]
     writable_formats = [("MDL Molfile", "mol")]
 
     def __init__(self):
@@ -26,51 +26,90 @@ class Molfile(FileFormat):
         self.filename = ""# output filename
 
     def read(self, filename):
+        self.reset_status()
         f = open(filename)
-        self._read_header(f)
-        self._read_body(f)
-        f.close()
-        if not self.molecule:
-            return None
-        # scale so that it have default bond length
-        place_molecule(self.molecule)
+        try:
+            doc = self.read_file(f)
+            self.status = "ok"
+            return doc
+        except FileError as e:
+            self.message = str(e)
+            return
+
+    def readFromString(self, text):
+        self.reset_status()
+        f = io.StringIO(text)
+        try:
+            doc = self.read_file(f)
+            self.status = "ok"
+            return doc
+        except FileError as e:
+            self.message = str(e)
+            return
+
+    def read_file(self, f):
         doc = Document()
-        doc.objects.append(self.molecule)
-        return doc
+        while True:
+            if not self.read_header(f):
+                break
+            mol = self.read_connection_table(f)
+            if not mol:
+                break
+            place_molecule(mol) # scale so that it have default bond length
+            doc.objects.append(mol)
+            data = self.read_structure_data(f)
+            if data:
+                mol.data = data
+        return doc if doc.objects else None
 
-    def _read_header(self, f):
+
+    def read_header(self, f):
         # header consists of title line, Program/timestamp line, and comment line
+        header = []
         for i in range(3):
-            f.readline()
+            line = f.readline()
+            if not line:
+                return
+            header.append(line.strip())
+        return header
 
-    def _read_body(self, f):
+    def read_connection_table(self, f):
+        """ also called CTAB """
+        # read counts line
         atom_count = read_value(f, 3, int)
         bond_count = read_value(f, 3, int)
-        # not something we need
+        # remaining part of counts line
         f.readline()
         # read the structure
-        self.molecule = Molecule()
-
+        mol = Molecule()
+        # read atom block
         for i in range( atom_count):
-            a = self._read_atom(f)
-
+            a = self.read_atom_line(f)
+            mol.add_atom(a)
+        # read bond block
         for k in range( bond_count):
-            bond = self._read_bond(f)
-
+            bond, a1, a2 = self.read_bond_line(f)
+            mol.add_bond(bond)
+            bond.connect_atoms(mol.atoms[a1], mol.atoms[a2])
+        # read properties block
         for line in f:
             if line.strip() == "M  END":
                 break
             if line.strip().startswith( "M  "):
-                self._read_property( line.strip())
+                self._read_property( line.strip(), mol)
 
-        for atom in self.molecule.atoms:
+        for atom in mol.atoms:
             if "charge" in atom.properties_:
                 charge = atom.properties_["charge"]
-                mark = create_new_mark_in_atom(atom, "charge_plus")
+                mark = Charge()
                 mark.setValue(charge)
+                atom.add_mark(mark)
                 atom.properties_.pop("charge")
 
-    def _read_atom(self, f):
+        return mol
+
+
+    def read_atom_line(self, f):
         x = read_value(f, 10, float)
         y = read_value(f, 10, float)
         z = read_value(f, 10, float)
@@ -79,15 +118,14 @@ class Molfile(FileFormat):
         mass_diff = read_value(f, 2)
         charge = read_charge(f)
         f.readline() # read remaining part of line
-        atom = self.molecule.new_atom()
-        atom.set_symbol(symbol)
-        atom.x, atom.y, atom.z = x,y,z
+        atom = Atom(symbol)
+        atom.x, atom.y, atom.z = x,-y,z
         if charge:
             atom.properties_["charge"] = charge
         return atom
 
 
-    def _read_bond(self, f):
+    def read_bond_line(self, f):
         a1 = read_value(f, 3, int) - 1 # molfiles index from 1
         a2 = read_value(f, 3, int) - 1
         typ = read_value(f, 3, int)
@@ -100,38 +138,38 @@ class Molfile(FileFormat):
         if typ=="single":
             stereo_remap = { 0: "single", 1: "wedge", 6: "hashed_wedge"}
             typ = stereo_remap.get(stereo, "single")
-        bond = self.molecule.new_bond()
+        bond = Bond()
         bond.set_type(typ)
-        bond.connect_atoms(self.molecule.atoms[a1], self.molecule.atoms[a2])
-        return bond
+        return bond, a1, a2
 
 
-    def _read_property(self, text):
+    def _read_property(self, text, mol):
         # read charge info
         if text.startswith("M  CHG"):
             m = re.match( "M\s+CHG\s+(\d+)(.*)", text)
             if m:
                 for at,chg in re.findall( "([-+]?\d+)\s+([-+]?\d+)", m.group( 2)):
-                    print(at,chg)
-                    atom = self.molecule.atoms[int(at)-1]
-                    charge = int(chg)
-                    mark = create_new_mark_in_atom(atom, "charge_plus")# val determines + or -
-                    mark.setValue(charge)
+                    #print(at,chg)
+                    atom = mol.atoms[int(at)-1]
+                    mark = Charge()
+                    mark.setValue(int(chg))
+                    atom.add_mark(mark)
         # read radical info
         elif text.startswith("M  RAD"):
             # M  RADnn8 aaa vvv aaa vvv ...
             m = re.match( "M\s+RAD\s+(\d+)(.*)", text)
             if m:
                 for at,rad in re.findall( "(\d+)\s+(\d+)", m.group( 2)):
-                    atom = self.molecule.atoms[int(at)-1]
+                    atom = mol.atoms[int(at)-1]
                     multi = int(rad)
+                    marks = []
                     if multi==1:# singlet
-                        create_new_mark_in_atom(atom, "electron_pair")
+                        marks = [Electron("2")]
                     elif multi==2:# doublet
-                        create_new_mark_in_atom(atom, "electron_single")
+                        marks = [Electron("1")]
                     elif multi==3:# triplet
-                        create_new_mark_in_atom(atom, "electron_single")
-                        create_new_mark_in_atom(atom, "electron_single")
+                        marks = [Electron("1"), Electron("1")]
+                    [atom.add_mark(mark) for mark in marks]
 
 
     def write(self, doc, filename):
@@ -145,9 +183,11 @@ class Molfile(FileFormat):
                 out_file.write(string)
             return True
         except:
+            self.message = "Filepath is not writable !"
             return False
 
     def generate_string(self, doc):
+        self.reset_status()
         # TODO : if multiple molecules present, show message to select a molecule
         molecules = [o for o in doc.objects if o.class_name=="Molecule"]
         if not molecules:
@@ -158,9 +198,15 @@ class Molfile(FileFormat):
         line2 = "ASChemCanv%s2D" % time.strftime("%y%m%d%H%M")
         comment = ""
         header = "%s\n%s\n%s\n" % (title, line2, comment)
-        # get connection table
-        ctab = self._get_connection_table()
-        return header + ctab
+        try:
+            # get connection table
+            ctab = self._get_connection_table()
+            output = header + ctab
+            self.status = "ok"
+            return output
+        except FileError as e:
+            self.message = str(e)
+            return ""
 
 
     def _get_connection_table(self):
@@ -217,7 +263,7 @@ class Molfile(FileFormat):
         charge = 0# actual charge will be written in properties block
         rest = "  0  0  0  0  0  0  0  0  0  0"
         #            1    2     3     4  5  6 7
-        return "%10.4f%10.4f%10.4f %-3s%2d%3d%s" % (x,y,z,symbol,mass_diff,charge,rest)
+        return "%10.4f%10.4f%10.4f %-3s%2d%3d%s" % (x,-y,z,symbol,mass_diff,charge,rest)
 
 
     def _get_bond_line(self, bond):
@@ -234,6 +280,22 @@ class Molfile(FileFormat):
         #         1  2  3  4 5
         return "%3d%3d%3d%3d%s" % (a1,a2,typ,stereo,rest)
 
+    def read_structure_data(self, f):
+        p = re.compile("> .*<(.*)>.*")
+        data_dict = {}
+
+        while (line := f.readline()):
+            if line.startswith("$$$$"):
+                return data_dict
+            if (m := p.match(line)):
+                field_name = m.group(1)
+                data = []
+                while (line := f.readline().strip()):
+                    data.append(line)
+                if len(data)==1:
+                    data = data[0]
+                if data:
+                    data_dict[field_name] = data
 
 # 1,2,3,5,6,7 in atom block denotes +3,+2,+1, -1,-2,-3 charge respectively
 # 4 denotes a radical
@@ -244,13 +306,12 @@ def read_charge(f):
 
 
 def read_value(file, length, convert_func=None):
-    """ reads specified number of characters
-    if conversion (a fuction taking one string argument) applies it;
-    if empty string is obtained after stripping 0 is returned """
+    """ reads specified number of characters. return None if failed.
+    the convert_func converts str to int, float etc types """
     s = file.read( length)
+    if len(s)<length:# failed to read
+        return
     s = s.strip()
-    if s == "":
-        return 0
-    if convert_func:
+    if s and convert_func:
         return convert_func(s)
     return s

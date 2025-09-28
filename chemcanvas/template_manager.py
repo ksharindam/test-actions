@@ -5,18 +5,22 @@ import os
 import math
 import operator
 from functools import reduce
+import urllib.request
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import QRect, Qt, pyqtSignal
+from PyQt5.QtGui import QPixmap, QFontMetrics, QPainter
 from PyQt5.QtWidgets import (QToolButton, QMenu, QInputDialog, QMessageBox, QDialog,
-    QWidget, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, QComboBox, QScrollArea, QDialogButtonBox, QAction,
-    QLineEdit)
+    QWidget, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, QComboBox, QScrollArea,
+    QDialogButtonBox, QAction, QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem,
+    QHeaderView, QStyle, QStyleOption)
 
 from app_data import App, Settings
-from fileformat import Document, Ccdx
-from widgets import FlowLayout, PixmapButton
+from document import Document
+from fileformats import Ccdx, Molfile
+from widgets import FlowLayout, PixmapButton, SearchBox, wait
 from paper import Paper
 import geometry as geo
+from tool_helpers import place_molecule, remove_explicit_hydrogens
 
 
 def find_template_icon(icon_name):
@@ -32,7 +36,7 @@ def find_template_icon(icon_name):
 
 class TemplateManager:
     # molecule categories
-    categories = ["Hydrocarbon", "Heterocycle", "Amino Acid", "Sugar", "Nitrogen Base", "Other"]
+    categories = ["Amino Acids", "Aromatics", "Bicyclics", "Bridged Polycyclics", "Crown Ethers", "Heterocycles", "Nucleobases", "Rings", "Sugars", "Others"]
 
     def __init__(self):
         # dict key is in "name index" format. eg - "cyclohexane", "cyclohexane 1".
@@ -51,20 +55,19 @@ class TemplateManager:
 
         # read all templates
         basic_templates_file = self.APP_TEMPLATES_DIR + "/basic_templates.cctf"
-        basic_templates = self.readTemplatesFile(basic_templates_file)
-        self.basic_templates = self.addTemplates(basic_templates)
+        basic_templates = self.read_templates_file(basic_templates_file)
+        self.basic_templates = self.add_templates(basic_templates)
 
         for template_dir in [self.APP_TEMPLATES_DIR, self.USER_TEMPLATES_DIR]:
             files = os.listdir(template_dir)
             files = [ template_dir+"/"+f for f in files if f.endswith(".cctf") ]
             for templates_file in files:
                 if templates_file != basic_templates_file:
-                    templates = self.readTemplatesFile(templates_file)
-                    titles = self.addTemplates(templates)
-                    self.extended_templates += titles
+                    templates = self.read_templates_file(templates_file)
+                    self.add_to_extended_templates(templates)
 
 
-    def readTemplatesFile(self, filename):
+    def read_templates_file(self, filename):
         """ returns list of template Molecule objects """
         ccdx_reader = Ccdx()
         doc = ccdx_reader.read(filename)
@@ -78,7 +81,7 @@ class TemplateManager:
         return templates
 
 
-    def addTemplates(self, templates):
+    def add_templates(self, templates):
         """ adds the templates to self.templates and returns list of template titles """
         titles = []
         for mol in templates:
@@ -91,21 +94,21 @@ class TemplateManager:
             titles.append(title)
         return titles
 
+    def add_to_extended_templates(self, templates):
+        """ add new templates to extended templates list """
+        titles = self.add_templates(templates)
+        self.extended_templates += titles
+        return titles
 
-    def getTransformedTemplate(self, template, coords, place_on="Paper"):
+
+    def get_transformed_template(self, template, coords, align_to="corner"):
+        """ transform template copy with align to atom, bond, center or corner """
         template = template.deepcopy()
         scale_ratio = 1
         trans = geo.Transform()
-        # just place the template on paper
-        if place_on == "Paper":
-            xt1, yt1 = template.template_atom.pos
-            xt2, yt2 = template.template_atom.neighbors[0].pos
-            scale_ratio = Settings.bond_length / math.sqrt( (xt1-xt2)**2 + (yt1-yt2)**2)
-            trans.translate( -xt1, -yt1)
-            trans.scale(scale_ratio)
-            trans.translate( coords[0], coords[1])
-        else:
-            if place_on == "Bond":
+
+        if align_to in ("Atom", "Bond") and template.template_atom and template.template_bond:
+            if align_to == "Bond":
                 xt1, yt1 = template.template_bond.atom1.pos
                 xt2, yt2 = template.template_bond.atom2.pos
                 #find appropriate side of bond to append template to
@@ -115,7 +118,7 @@ class TemplateManager:
                 points = [a.pos for a in atms]
                 if reduce( operator.add, [geo.line_get_side_of_point( (xt1,yt1,xt2,yt2), xy) for xy in points], 0) < 0:
                     xt1, yt1, xt2, yt2 = xt2, yt2, xt1, yt1
-            else:# place_on == "Atom"
+            else:# align_to == "Atom"
                 xt1, yt1 = template.template_atom.pos
                 xt2, yt2 = template.find_place(template.template_atom, geo.point_distance(template.template_atom.pos, template.template_atom.neighbors[0].pos))
             x1, y1, x2, y2 = coords
@@ -124,6 +127,20 @@ class TemplateManager:
             trans.rotate( math.atan2( xt1-xt2, yt1-yt2) - math.atan2( x1-x2, y1-y2))
             trans.scale(scale_ratio)
             trans.translate(x1, y1)
+        # place center of template at given coord
+        else:
+            #xt1, yt1 = template.template_atom.pos
+            #xt2, yt2 = template.template_atom.neighbors[0].pos
+            #scale_ratio = Settings.bond_length / math.sqrt( (xt1-xt2)**2 + (yt1-yt2)**2)
+            place_molecule(template)
+            bbox = template.bounding_box()
+            if align_to == "center":
+                center = geo.rect_get_center(bbox)
+                trans.translate( -center[0], -center[1])
+            else:# align_to=="corner" (place top-left corner of template at given coord)
+                trans.translate( -bbox[0], -bbox[1])
+            trans.scale(scale_ratio)
+            trans.translate( coords[0], coords[1])
 
         for a in template.atoms:
             a.x, a.y = trans.transform(a.x, a.y)
@@ -136,7 +153,7 @@ class TemplateManager:
         return template
 
 
-    def saveTemplate(self, template_mol):
+    def save_template(self, template_mol):
         # check if molecule is template
         if not template_mol.template_atom:
             QMessageBox.warning(App.window, "No Template-Atom !", "Template-Atom not selected. \nRight click on an atom and click 'Set as Template-Atom'")
@@ -160,8 +177,7 @@ class TemplateManager:
                 doc = Document()
             doc.objects.append(template_mol)
             ccdx.write(doc, filename)
-            titles = self.addTemplates([template_mol])
-            self.extended_templates += titles
+            self.add_to_extended_templates([template_mol])
 
 
 
@@ -172,8 +188,8 @@ class TemplateManagerDialog(QDialog):
     of template molecules. New templates option only shows how to add template """
     def __init__(self, parent):
         QDialog.__init__(self, parent)
-        self.setWindowTitle("Template Manager")
-        self.resize(500, 350)
+        self.setWindowTitle("User Template Manager")
+        self.resize(720, 480)
         topContainer = QWidget(self)
         topContainerLayout = QHBoxLayout(topContainer)
         topContainerLayout.setContentsMargins(0,0,0,0)
@@ -234,12 +250,11 @@ class TemplateManagerDialog(QDialog):
         self.last_selected_button = None
 
         filename = self.filenameCombo.itemData(self.filenameCombo.currentIndex())
-        templates = App.template_manager.readTemplatesFile(filename)
+        templates = App.template_manager.read_templates_file(filename)
         paper = Paper()
         for template in templates:
-            btn = PixmapButton(self.scrollWidget)
             thumbnail = paper.renderObjects([template])
-            btn.setPixmap(QPixmap.fromImage(thumbnail))
+            btn = TemplateButton(template.name, thumbnail, self.scrollWidget)
             self.scrollLayout.addWidget(btn)
             btn.clicked.connect(self.onTemplateClick)
             btn.template = template
@@ -355,14 +370,18 @@ class TemplateChooserDialog(QDialog):
     def __init__(self, parent):
         QDialog.__init__(self, parent)
         self.setWindowTitle("Templates")
-        self.resize(500, 350)
+        self.resize(720, 480)
         topContainer = QWidget(self)
         topContainerLayout = QHBoxLayout(topContainer)
         topContainerLayout.setContentsMargins(0,0,0,0)
         self.categoryCombo = QComboBox(topContainer)
         topContainerLayout.addWidget(self.categoryCombo)
         topContainerLayout.addStretch()
-        self.categoryCombo.addItems(["All"] + App.template_manager.categories)
+        self.searchBox = SearchBox(self)
+        self.searchBox.setPlaceholderText("Search Templates ...")
+        topContainerLayout.addWidget(self.searchBox)
+        self.categoryCombo.addItems(App.template_manager.categories)
+        self.categoryCombo.setCurrentIndex(self.category_index)
         self.scrollArea = QScrollArea(self)
         self.scrollArea.setWidgetResizable(True)
         self.scrollWidget = QWidget()
@@ -371,29 +390,41 @@ class TemplateChooserDialog(QDialog):
         self.scrollLayout.setContentsMargins(6, 6, 6, 6)
         self.scrollArea.setWidget(self.scrollWidget)
         self.btnBox = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel, self)
+        self.searchBox.setFocus()
         # layout widgets
         layout = QVBoxLayout(self)
         layout.addWidget(topContainer)
         layout.addWidget(self.scrollArea)
         layout.addWidget(self.btnBox)
         # connect signals
-        self.categoryCombo.currentTextChanged.connect(self.onCategoryChange)
+        self.categoryCombo.currentTextChanged.connect(self.showCategory)
+        #self.searchBox.returnPressed.connect(self.searchTemplate)
+        self.searchBox.textChanged.connect(self.searchTemplate)
         self.btnBox.accepted.connect(self.accept)
         self.btnBox.rejected.connect(self.reject)
         # init variables
         self.template_buttons = [] # used to remove buttons later
         self.selected_button = None
-        # if total number of templates are less, then 'All' templates should be shown.
-        # else first non empty category should be shown
-        if self.category_index==0:
-            self.onCategoryChange("All")
-        else:
-            self.categoryCombo.setCurrentIndex(self.category_index)
+        self.showCategory(self.categoryCombo.currentText())
 
 
-    def onCategoryChange(self, category):
+    def showCategory(self, category):
         # to remember selected category
         TemplateChooserDialog.category_index = self.categoryCombo.currentIndex()
+        # add template buttons to scrollwidget
+        titles = App.template_manager.extended_templates
+        titles = list(filter(lambda x:App.template_manager.templates[x].category==category.strip("s"), titles))
+        self.showTemplates(titles)
+
+    def searchTemplate(self, text):
+        """ search and show templates """
+        wait(100)# prevents freezing cursor before loading templates
+        if len(text)>2:
+            self.showTemplates( search_template(text))
+        elif text=="":
+            self.showCategory(self.categoryCombo.currentText())
+
+    def showTemplates(self, titles):
         # remove previous category templates
         for btn in reversed(self.template_buttons):# remove from last to first
             self.scrollLayout.removeWidget(btn)
@@ -401,18 +432,12 @@ class TemplateChooserDialog(QDialog):
         self.template_buttons = []
         self.selected_button = None
         self.btnBox.button(QDialogButtonBox.Ok).setEnabled(False)# can not accept if no template is selected
-        # add template buttons to scrollwidget
-        titles = App.template_manager.extended_templates
-        if category!="All":
-            titles = list(filter(lambda x:App.template_manager.templates[x].category==category, titles))
-
         paper = Paper()
         #for template in templates:
         for title in titles:
             template = App.template_manager.templates[title]
-            btn = PixmapButton(self.scrollWidget)
             thumbnail = paper.renderObjects([template])
-            btn.setPixmap(QPixmap.fromImage(thumbnail))
+            btn = TemplateButton(template.name, thumbnail, self.scrollWidget)
             self.scrollLayout.addWidget(btn)
             btn.clicked.connect(self.onTemplateClick)
             btn.doubleClicked.connect(self.accept)
@@ -431,14 +456,41 @@ class TemplateChooserDialog(QDialog):
 
 
     def accept(self):
+        # in rare case, double click event can occur without single click event,
+        # then button is not selected
+        if not self.selected_button:
+            return
         self.selected_template = self.selected_button.data["template"]
         QDialog.accept(self)
+
+
+
+class TemplateButton(PixmapButton):
+    def __init__(self, title, thumbnail, parent):
+        PixmapButton.__init__(self, parent)
+        font = self.font()
+        font.setPointSize(9)
+        font_met = QFontMetrics(font)
+        text_w, text_h = font_met.width(title), font_met.height()
+        btn_w = max(text_w, thumbnail.width())
+        btn_h = thumbnail.height() + text_h
+        pm = QPixmap(btn_w, btn_h)
+        pm.fill()
+        painter = QPainter(pm)
+        painter.setPen(Qt.blue)
+        painter.setFont(font)
+        painter.drawImage(int((btn_w-thumbnail.width())/2), 0, thumbnail)
+        painter.drawText(QRect(0,thumbnail.height(), pm.width(), text_h), Qt.AlignHCenter, title)
+        painter.end()
+        PixmapButton.setPixmap(self,pm)
 
 
 
 # ---------------------- Save Template Dialog -------------------
 
 class SaveTemplateDialog(QDialog):
+    filename_index = 0
+    category_index = 0 # to remember current category combo
     def __init__(self, parent):
         QDialog.__init__(self, parent)
         self.setWindowTitle("Save Template")
@@ -468,10 +520,10 @@ class SaveTemplateDialog(QDialog):
         files = os.listdir(template_dir)
         for templates_file in files:
             self.filenameCombo.addItem(templates_file, template_dir+"/"+templates_file)
-        self.categoryCombo.addItems(App.template_manager.categories)
-        # select other category by default
-        self.categoryCombo.setCurrentIndex(self.categoryCombo.count()-1)
-
+        if self.filename_index < len(files):
+            self.filenameCombo.setCurrentIndex(self.filename_index)
+        self.categoryCombo.addItems([c.strip("s") for c in App.template_manager.categories])
+        self.categoryCombo.setCurrentIndex(self.category_index)
 
     def onSaveClick(self):
         if not self.nameEdit.text():
@@ -482,6 +534,8 @@ class SaveTemplateDialog(QDialog):
             dlg = NewTemplateFileDialog(self)
             if dlg.exec()!=dlg.Accepted:
                 return self.reject()
+        SaveTemplateDialog.filename_index = self.filenameCombo.currentIndex()
+        SaveTemplateDialog.category_index = self.categoryCombo.currentIndex()
         self.accept()
 
     def getValues(self):
@@ -531,3 +585,184 @@ class NewTemplateFileDialog(QDialog):
             self.accept()
         else:# failed to write
             self.reject()
+
+
+
+
+def search_template(text):
+    """ search and show templates """
+    if not text:
+        return []
+    text = text.lower()
+    result1 = []# list of (title, priority) tuple
+    result2 = []
+    for title in App.template_manager.extended_templates:
+        name = title.lower()
+        if name.startswith(text):
+            result1.append((title, len(title)))# shorter names have higher priority
+        elif text in name:
+            result2.append((title, len(title)))
+    # sort the result, according to number of matched words
+    result1 = sorted(result1, key=lambda x: x[1])
+    result2 = sorted(result2, key=lambda x: x[1])
+    return [x[0] for x in result1+result2]
+
+
+
+class TemplateSearchWidget(QWidget):
+    templateSelected = pyqtSignal(str)
+    def __init__(self, parent):
+        QWidget.__init__(self, parent)
+        self.setStyleSheet("TemplateSearchWidget{background-color: #cccccc;}")
+        self.resize(600,304)
+        self.table = QTableWidget(self)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(self.table.SelectRows)# required for table.selectRow()
+        self.table.setSelectionMode(self.table.SingleSelection)
+        self.table.horizontalHeader().setHidden(True)
+        self.table.verticalHeader().setHidden(True)
+        self.table.setColumnCount(1)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.viewport().setMouseTracking(True)# to enable hover event
+        self.thumbnail = QLabel(self)
+        pm = QPixmap(256,256)
+        pm.fill()
+        self.thumbnail.setPixmap(pm)
+        self.statusbar = QLabel(self)
+        self.autoPlacementBtn = QCheckBox("Place automatically", self)
+        self.autoPlacementBtn.setChecked(True)
+        # layout widgets
+        layout = QGridLayout(self)
+        layout.addWidget(self.table, 0,0,1,1)
+        layout.addWidget(self.thumbnail, 0,1,1,1)
+        layout.addWidget(self.statusbar, 2,0,1,1)
+        layout.addWidget(self.autoPlacementBtn, 2,1,1,1)
+        # connect signals
+        self.table.entered.connect(self.onHover)
+        self.table.itemSelectionChanged.connect(self.updateThumbnail)
+        self.table.itemClicked.connect(self.onItemClick)
+
+    def reposition(self):
+        """ place just below searchBox """
+        x = self.searchBox.pos().x()+self.searchBox.width()-self.width()
+        y = self.searchBox.pos().y()+self.searchBox.height()*2
+        self.move(x, y)
+
+    def setSearchBox(self, searchBox):
+        self.searchBox = searchBox
+        searchBox.textChanged.connect(self.searchTemplate)
+        searchBox.arrowPressed.connect(self.onArrowPress)
+        searchBox.tabPressed.connect(self.useSelectedTemplate)
+        searchBox.returnPressed.connect(self.useSelectedTemplate)
+        self.reposition()
+
+    def onArrowPress(self, key):
+        """ move selection up or down by pressing arrow keys """
+        items = self.table.selectedItems()
+        if items:
+            row = items[0].row()
+            if key==Qt.Key_Up and row>0:
+                self.table.selectRow(row-1)
+            if key==Qt.Key_Down and row<self.table.rowCount()-1:
+                self.table.selectRow(row+1)
+
+    def onHover(self, index):
+        """ select on hover """
+        self.table.setCurrentIndex(index)
+        self.table.selectRow(index.row())
+
+    def onItemClick(self, tableitem):
+        self.useSelectedTemplate()
+
+    def useSelectedTemplate(self):
+        items = self.table.selectedItems()
+        if items:
+            id = items[0].data(Qt.UserRole+1)
+            if not id:
+                template = items[0].data(Qt.UserRole)
+                id = App.template_manager.add_to_extended_templates([template])[0]
+            self.templateSelected.emit(id)
+
+    def searchTemplate(self, text):
+        """ search and show templates """
+        if not text or len(text)<3:
+            self.showTemplates([])# clear list
+            return
+        templates = search_template(text)
+        #self.statusbar.setText("%i results found" % len(templates))
+        self.showTemplates( templates)
+
+    def webSearchTemplate(self):
+        text = self.searchBox.text()
+        if len(text)<3:
+            return
+        self.showTemplates([])# clear list
+        self.statusbar.setText("Searching...")
+        wait(100)
+        try:
+            # tutorial : https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest-tutorial
+            url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/%s/SDF"%text.replace(" ", "-")
+            response = urllib.request.urlopen(url)
+            result = response.read().decode("utf-8")
+        except urllib.error.HTTPError:
+            self.statusbar.setText("No result found")
+            return
+        except:
+            self.statusbar.setText("Failed to connect to the internet")
+            return
+        reader = Molfile()
+        doc = reader.readFromString(result)
+        if doc:
+            objs = doc.objects
+            for obj in objs:
+                remove_explicit_hydrogens(obj)
+                obj.name = obj.data["PUBCHEM_IUPAC_NAME"]
+                obj.data = None
+            self.showTemplates( doc.objects)
+
+    def showTemplates(self, templates):
+        """ add list of templates to table. templates is a list of either te """
+        if len(self.searchBox.text())>2:
+            self.statusbar.setText("Found %i results" % len(templates))
+        else:
+            self.statusbar.setText("")
+        self.table.setRowCount(len(templates))
+        for i,tmpl in enumerate(templates):
+            if type(tmpl)==str:# template id
+                template = App.template_manager.templates[tmpl]
+                template_id = tmpl
+            else:# Molecule object
+                template = tmpl
+                template_id = None
+            item = QTableWidgetItem(template.name)
+            item.setData(Qt.UserRole, template)
+            item.setData(Qt.UserRole+1, template_id)
+            self.table.setItem(i, 0, item)
+        # select first row
+        if len(templates):
+            self.table.selectRow(0)
+            self.updateThumbnail()
+
+    def updateThumbnail(self):
+        pm = QPixmap(256,256)
+        pm.fill()
+        items = self.table.selectedItems()
+        if not items:
+            self.thumbnail.setPixmap(pm)
+            return
+        template = items[0].data(Qt.UserRole)
+        paper = Paper()
+        img = paper.renderObjects([template])
+        if img.width()>pm.width() or img.height()>pm.height():
+            img = img.scaled(pm.width(),pm.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        painter = QPainter(pm)
+        painter.drawImage(int((pm.width()-img.width())/2), int((pm.height()-img.height())/2),img)
+        painter.end()
+        self.thumbnail.setPixmap(pm)
+
+    def paintEvent(self, paint_ev):
+        """ this function is needed, otherwise stylesheet is not applied properly """
+        o = QStyleOption()
+        o.initFrom(self)
+        p = QPainter(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, o, p, self)

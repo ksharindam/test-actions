@@ -6,6 +6,8 @@ import operator
 from math import sin, cos, asin, atan2
 from math import pi as PI
 
+from PyQt5.QtGui import QIcon
+
 from app_data import App, Settings
 from drawing_parents import Color, Align, PenStyle
 from tool_helpers import *
@@ -45,6 +47,11 @@ class Tool:
         pass
 
     def on_right_click(self, x,y):
+        menu = self.get_default_context_menu()
+        if menu:
+            App.paper.showMenu(menu, (x,y))
+
+    def get_default_context_menu(self):
         focused = App.paper.focused_obj
         menu = create_object_property_menu(focused)
         if isinstance(focused, Bond) or isinstance(focused, Atom) and not focused.is_group:
@@ -55,8 +62,7 @@ class Tool:
                 action = template_menu.addAction(title)
                 action.data = {"object":focused}
             template_menu.triggered.connect(on_template_menu_click)
-        if menu:
-            App.paper.showMenu(menu, (x,y))
+        return menu
 
     def on_property_change(self, key, value):
         """ this is called when a tool settings is changed in settingsbar """
@@ -120,7 +126,7 @@ def on_object_property_action_click(action):
 def on_template_menu_click(action):
     obj = action.data["object"]
     if action.text() == "Save Molecule as Template":
-        App.template_manager.saveTemplate(obj.molecule)
+        App.template_manager.save_template(obj.molecule)
     elif action.text() == "Set as Template-Atom":
         obj.molecule.template_atom = obj
     elif action.text() == "Set as Template-Bond":
@@ -741,8 +747,16 @@ class AlignTool(Tool):
             coords = self.focused.atom1.pos + self.focused.atom2.pos
         mol = self.focused.parent
         self.__class__.__dict__['_apply_'+toolsettings['mode']](self, coords, mol)
+        # after mirror or inversion, hydrogen pos, double bond side etc need to be updated
+        for o in get_objs_with_all_children([mol]):
+            if isinstance(o,Atom):
+                o.hydrogen_pos = None
+            elif isinstance(o,Bond):
+                if o.auto_second_line_side:
+                    o.second_line_side = None
         draw_recursively(mol)
         App.paper.save_state_to_undo_stack("Transform : %s" % toolsettings['mode'])
+
 
     def _apply_horizontal_align(self, coords, mol):
         x1,y1, x2,y2 = coords
@@ -1086,20 +1100,7 @@ class StructureTool(Tool):
     def on_mouse_clickTemplate(self, x,y):
         focused = App.paper.focused_obj
         template = App.template_manager.templates[toolsettings['structure']]
-        if not focused:
-            # when we try to click over atom or bond but mouse got accidentally
-            # unfocued. we should prevent placing template too close.
-            d = Settings.bond_length/2
-            objs = App.paper.objectsInRect([x-d, y-d, x+d, y+d])
-            objs = list(filter(lambda o : isinstance(o, (Atom,Bond)), objs))
-            if objs:
-                return
-            t = App.template_manager.getTransformedTemplate(template, [x,y])
-            App.paper.addObject(t)
-            draw_recursively(t)
-            t.template_atom = None
-            t.template_bond = None
-        elif isinstance(focused, Atom):
+        if isinstance(focused, Atom) and template.template_atom:
             # (x1,y1) is the point where template-atom is placed, (x2,y2) is the point
             # for aligning and scaling the template molecule
             if focused.free_valency >= template.template_atom.occupied_valency:# merge atom
@@ -1109,19 +1110,19 @@ class StructureTool(Tool):
                 else:
                     x2, y2 = focused.molecule.find_place(focused, Settings.bond_length)
                     x2, y2 = (2*x1 - x2), (2*y1 - y2)# to opposite side of x1, y1
-                t = App.template_manager.getTransformedTemplate(template, [x1,y1,x2,y2], "Atom")
+                t = App.template_manager.get_transformed_template(template, [x1,y1,x2,y2], "Atom")
                 focused.eat_atom(t.template_atom)
             else: # connect template-atom and focused atom with bond
                 x1, y1 = focused.molecule.find_place(focused, Settings.bond_length)
                 x2, y2 = focused.pos
-                t = App.template_manager.getTransformedTemplate(template, [x1,y1,x2,y2], "Atom")
+                t = App.template_manager.get_transformed_template(template, [x1,y1,x2,y2], "Atom")
                 t_atom = t.template_atom
                 focused.molecule.eat_molecule(t)
                 bond = focused.molecule.new_bond()
                 bond.connect_atoms(focused, t_atom)
             focused.molecule.handle_overlap()
             draw_recursively(focused.molecule)
-        elif isinstance(focused, Bond):
+        elif isinstance(focused, Bond) and template.template_bond:
             x1, y1 = focused.atom1.pos
             x2, y2 = focused.atom2.pos
             # template is attached to the left side of the passed coordinates,
@@ -1131,12 +1132,23 @@ class StructureTool(Tool):
             # so if most atoms are at the left side, switch start and end point
             if reduce( operator.add, [geo.line_get_side_of_point( (x1,y1,x2,y2), xy) for xy in coords], 0) > 0:
                 x1, y1, x2, y2 = x2, y2, x1, y1
-            t = App.template_manager.getTransformedTemplate(template, (x1,y1,x2,y2), "Bond")
+            t = App.template_manager.get_transformed_template(template, (x1,y1,x2,y2), "Bond")
             focused.molecule.eat_molecule(t)
             focused.molecule.handle_overlap()
             draw_recursively(focused.molecule)
         else:
-            return
+            # when we try to click over atom or bond but mouse got accidentally
+            # unfocued. we should prevent placing template too close.
+            d = Settings.bond_length/2
+            objs = App.paper.objectsInRect([x-d, y-d, x+d, y+d])
+            objs = list(filter(lambda o : isinstance(o, (Atom,Bond)), objs))
+            if objs:
+                return
+            t = App.template_manager.get_transformed_template(template, [x,y], "center")
+            App.paper.addObject(t)
+            draw_recursively(t)
+            t.template_atom = None
+            t.template_bond = None
         App.paper.save_state_to_undo_stack("add template : %s"% template.name)
 
 
@@ -1701,8 +1713,9 @@ charge_info = {
     "charge_deltaminus": ("partial", -1),
 }
 
-def create_mark_from_type(mark_type):
+def create_new_mark_in_atom(atom, mark_type):
     """ @mark_type types are specified in settings template """
+    # create mark from type
     if mark_type.startswith("charge"):
         typ, val = charge_info[mark_type]
         mark = Charge(typ)
@@ -1714,44 +1727,9 @@ def create_mark_from_type(mark_type):
         mark = Electron("2")
     else:
         raise ValueError("Can not create mark from invalid mark type")
+
+    atom.add_mark(mark)
     return mark
-
-def create_new_mark_in_atom(atom, mark_type):
-    mark = create_mark_from_type(mark_type)
-    mark.atom = atom
-    x, y = find_place_for_mark(mark)
-    mark.set_pos(x,y)
-    # this must be done after setting the pos, otherwise it will not
-    # try to find new place for mark
-    atom.marks.append(mark)
-    return mark
-
-def find_place_for_mark(mark):
-    """ find place for new mark. mark must have a parent atom """
-    atom = mark.atom
-    x, y = atom.x, atom.y
-
-    angles = atom.occupied_angles
-    if len(angles) == int(atom.hydrogen_pos!=None):# single atom molecule with no marks
-        dist = 0.5*atom.font_size + 0.75*mark.size
-        return x, y-dist
-
-    angles.append( 2*PI + min( angles))
-    angles.sort(reverse=True)
-    diffs = common.list_difference( angles)
-    i = diffs.index( max( diffs))
-    angle = (angles[i] + angles[i+1]) / 2
-    direction = (x+cos(angle), y+sin(angle))
-
-    # calculate the distance
-    if not atom.show_symbol and atom.neighbors:# hidden carbon atom
-        dist = round(1.5*mark.size)
-    else:
-        x0, y0 = geo.circle_get_point((x,y), 500, direction)
-        x1, y1 = geo.rect_get_intersection_of_line(atom.bounding_box(), [x,y,x0,y0])
-        dist = geo.point_distance((x,y), (x1,y1)) + 0.75*mark.size
-
-    return geo.circle_get_point((x,y), dist, direction)
 
 
 def delete_mark(mark):

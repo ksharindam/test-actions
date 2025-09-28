@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
 # Copyright (C) 2024-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
-from app_data import App
+from app_data import Settings
 from common import float_to_str
 from drawing_parents import hex_color, hex_to_color
 from marks import Charge, Electron
@@ -21,6 +21,7 @@ class Ccdx(FileFormat):
     writable_formats = [("ChemCanvas Drawing XML", "ccdx")]
 
     def reset(self):
+        self.reset_status()
         # for read mode
         self.id_to_obj = {}
         # for write mode
@@ -58,17 +59,22 @@ class Ccdx(FileFormat):
         # read root element
         ccdxs = dom_doc.getElementsByTagName("ccdx")
         if not ccdxs:
+            self.message = "File has no ccdx element !"
             return
         self.doc = Document()
-        version = ccdxs[0].getAttribute("version")
-        if not version:
-            reader = Ccdx0()
-            doc = reader.read(filename)
-            self.doc.objects = doc.objects
-        else:
-            self.readCcdx(ccdxs[0])
-
-        return self.doc.objects and self.doc or None
+        try:
+            version = ccdxs[0].getAttribute("version")
+            if not version:
+                reader = Ccdx0()
+                doc = reader.read(filename)
+                self.doc.objects = doc.objects
+            else:
+                self.readCcdx(ccdxs[0])
+            self.status = "ok"
+            return self.doc.objects and self.doc or None
+        except FileError as e:
+            self.message = str(e)
+            return
 
 
     def readCcdx(self, element):
@@ -334,16 +340,19 @@ class Ccdx(FileFormat):
     # -----------------------------------------------------------------
 
     def write(self, doc, filename):
-        self.reset()
         string = self.generate_string(doc)
+        if not string:
+            return False
         try:
             with io.open(filename, "w", encoding="utf-8") as out_file:
                 out_file.write(string)
             return True
         except:
+            self.message = "Filepath is not writable !"
             return False
 
     def generate_string(self, doc):
+        self.reset()
         dom_doc = minidom.Document()
         root = dom_doc.createElement("ccdx")
         dom_doc.appendChild(root)
@@ -353,16 +362,22 @@ class Ccdx(FileFormat):
         w, h = doc.page_size()
         if w!=595 and h!=842:# do not save default page size
             root.setAttribute("page_size", ",".join(map(float_to_str, (w,h))))
-        # write objects
-        for obj in doc.objects:
-            elm = self.createObjectNode(obj, root)
-            if obj.scale_val!=1.0:
-                elm.setAttribute("scale", float_to_str(obj.scale_val))
+        try:
+            # write objects
+            for obj in doc.objects:
+                elm = self.createObjectNode(obj, root)
+                if obj.scale_val!=1.0:
+                    elm.setAttribute("scale", float_to_str(obj.scale_val))
 
-        # set generated ids
-        for obj,id in self.obj_to_id.items():
-            self.obj_element_map[obj].setAttribute("id", id)
-        return dom_doc.toprettyxml(indent="  ")
+            # set generated ids
+            for obj,id in self.obj_to_id.items():
+                self.obj_element_map[obj].setAttribute("id", id)
+            output = dom_doc.toprettyxml(indent="  ")
+            self.status = "ok"
+            return output
+        except FileError as e:
+            self.message = str(e)
+            return
 
 
     def createObjectNode(self, obj, parent):
@@ -790,7 +805,7 @@ def electron_read_xml_node(electron, elm):
         electron.type = type
     radius = elm.getAttribute("rad")
     if radius:
-        electron.radius = float(radius)
+        electron.dot_size = float(radius)*2
     return True
 
 

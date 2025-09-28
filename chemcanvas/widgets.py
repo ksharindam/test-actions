@@ -9,16 +9,16 @@ import urllib.request
 
 from PyQt5.QtCore import (Qt, pyqtSignal, QPoint, QEventLoop, QTimer, QUrl,
     QSize, QRect, QObject)
-from PyQt5.QtGui import QPainter, QPixmap, QColor, QDesktopServices, QPen
+from PyQt5.QtGui import QPainter, QPixmap, QColor, QDesktopServices, QPen, QIcon
 
-from PyQt5.QtWidgets import ( QDialog, QDialogButtonBox, QGridLayout,
-    QLineEdit, QPushButton, QLabel, QApplication, QSizePolicy,
+from PyQt5.QtWidgets import ( QApplication, QDialog, QDialogButtonBox, QGridLayout,
+    QLineEdit, QPushButton, QToolButton, QLabel, QApplication, QSizePolicy,
     QTextEdit, QWidget, QHBoxLayout, QLayout,
-    QComboBox, QScrollArea, QVBoxLayout,
+    QComboBox, QScrollArea, QVBoxLayout, QStyle
 )
 
 from __init__ import __version__
-
+from app_data import get_icon
 
 palette_colors = [
     "#000000", "#404040", "#6b6b6b", "#808080", "#909090", "#ffffff",
@@ -224,6 +224,53 @@ class PixmapButton(QLabel):
 
 
 
+#  -------------------------- Search Box ---------------------------
+
+class SearchBox(QLineEdit):
+    """ A LineEdit with search icon and clear button """
+    escapePressed = pyqtSignal()
+    tabPressed = pyqtSignal()
+    arrowPressed = pyqtSignal(int)
+
+    def __init__(self, parent):
+        QLineEdit.__init__(self, parent)
+        self.setStyleSheet("QLineEdit { padding: 2 22 2 22;}")
+        # Create button for showing search icon
+        self.searchButton = QToolButton(self)
+        self.searchButton.setStyleSheet("QToolButton { border: 0; background: transparent; width: 16px; height: 16px; }")
+        self.searchButton.setIcon(get_icon(':/icons/search'))
+        # Create button for showing clear icon
+        self.clearButton = QToolButton(self)
+        self.clearButton.setStyleSheet("QToolButton { border: 0; background: transparent; width: 16px; height: 16px; }")
+        self.clearButton.setIcon(get_icon(':/icons/clear'))
+        self.clearButton.setCursor(Qt.PointingHandCursor)
+        self.clearButton.clicked.connect(self.clear)
+
+    def resizeEvent(self, ev):
+        self.searchButton.move(3,3)
+        self.clearButton.move(self.width()-22,3)
+        QLineEdit.resizeEvent(self, ev)
+
+    def event(self, ev):
+        """This functions is used to handle tab key press.
+        Because, tab press event is not received by keyPressEvent() """
+        if ev.type()==ev.KeyPress and ev.key()==Qt.Key_Tab:
+            self.tabPressed.emit()
+            return True
+        return QLineEdit.event(self, ev)
+
+    def keyPressEvent(self, ev):
+        if ev.key() == Qt.Key_Delete:
+            self.clear()
+            return ev.accept()
+        elif ev.key() == Qt.Key_Escape:
+            self.escapePressed.emit()
+        elif ev.key() in (Qt.Key_Up, Qt.Key_Down):
+            self.arrowPressed.emit(ev.key())
+        QLineEdit.keyPressEvent(self, ev)
+
+
+
 #  ----------------- Text Display or Input Dialog -----------------
 
 class TextBoxDialog(QDialog):
@@ -386,13 +433,18 @@ def latest_version_info(github_repo):
 
 def is_later_than(versionA, versionB):
     """ check if versionA is later than versionB (versions must be in x.x.x format) """
-    listA = versionA.split(".")
-    listB = versionB.split(".")
-    for i in range(3):
-        if int(listA[i]) > int(listB[i]):
-            return True
-
-    return False
+    try:
+        listA = versionA.split(".")
+        listB = versionB.split(".")
+        for i in range(3):
+            a, b = int(listA[i]), int(listB[i])
+            if a > b:
+                return True
+            elif a < b:
+                return False
+        return False
+    except:
+        return False
 
 
 class UpdateChecker(QObject):
@@ -415,6 +467,46 @@ class UpdateChecker(QObject):
             #print(str(e))
             self.updateCheckFinished.emit("","")
 
+
+class ErrorDialog(QDialog):
+    def __init__(self, parent, title, description):
+        QDialog.__init__(self, parent)
+        self.setWindowTitle("Error !")
+        self.resize(480,320)
+        layout = QVBoxLayout(self)
+        titleContainer = QWidget(self)
+        titleLayout = QHBoxLayout(titleContainer)
+        titleLayout.setContentsMargins(0,0,0,0)
+        iconLabel = QLabel(titleContainer)
+        pm = iconLabel.style().standardIcon(QStyle.SP_MessageBoxWarning).pixmap(32)
+        iconLabel.setPixmap(pm)
+        label = QLabel(title, titleContainer)
+        titleLayout.addWidget(iconLabel)
+        titleLayout.addWidget(label)
+        titleLayout.addStretch()
+        self.textView = QTextEdit(self)
+        self.textView.setReadOnly(True)
+        self.textView.setPlainText(description)
+        copyBtn = QPushButton("Copy", self)
+        closeBtn = QPushButton("Close", self)
+        # buttonbox
+        buttonBox = QWidget(self)
+        buttonLayout = QHBoxLayout(buttonBox)
+        buttonLayout.setContentsMargins(0,0,0,0)
+        buttonLayout.addStretch()
+        buttonLayout.addWidget(copyBtn)
+        buttonLayout.addWidget(closeBtn)
+        # layout widgets
+        layout.addWidget(titleContainer)
+        layout.addWidget(self.textView)
+        layout.addWidget(buttonBox)
+
+        copyBtn.clicked.connect(self.copyText)
+        closeBtn.clicked.connect(self.reject)
+
+    def copyText(self):
+        text = self.textView.toPlainText()
+        QApplication.clipboard().setText(text)
 
 
 def wait(millisec):

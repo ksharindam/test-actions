@@ -8,10 +8,11 @@ import io
 import platform
 import re
 from datetime import datetime
+import traceback
 
 from PyQt5.QtCore import (qVersion, Qt, QSettings, QEventLoop, QTimer, QThread,
     QSize, QDir, QStandardPaths)
-from PyQt5.QtGui import QIcon, QPainter, QPixmap
+from PyQt5.QtGui import QIcon, QPainter, QPixmap, QPalette
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QStyleFactory, QGridLayout, QGraphicsView, QSpacerItem, QVBoxLayout,
@@ -24,19 +25,20 @@ sys.path.append(os.path.dirname(__file__)) # for enabling python 2 like import
 from __init__ import __version__, COPYRIGHT_YEAR, AUTHOR_NAME, AUTHOR_EMAIL
 from ui_mainwindow import Ui_MainWindow
 
-from paper import Paper, SvgPaper, draw_graphicsitem
+from paper import Paper
 from tools import *
-from tool_helpers import draw_recursively
-from app_data import App
-from fileformat import *
+from tool_helpers import draw_recursively, get_objs_with_all_children
+from app_data import App, get_icon
+from fileformats import *
 from template_manager import (TemplateManager, find_template_icon,
-    TemplateChooserDialog, TemplateManagerDialog)
+    TemplateChooserDialog, TemplateManagerDialog, TemplateSearchWidget)
 from smiles import SmilesReader, SmilesGenerator
 from coords_generator import calculate_coords
 from widgets import (PaletteWidget, TextBoxDialog, UpdateDialog, UpdateChecker,
-    PixmapButton, FlowLayout)
+    PixmapButton, FlowLayout, SearchBox, wait, ErrorDialog)
+from settings_ui import SettingsDialog
 
-
+from common import str_to_tuple
 
 
 DEBUG = False
@@ -59,8 +61,10 @@ class Window(QMainWindow, Ui_MainWindow):
         self.rightGrid = QGridLayout(self.rightFrame)
 
         # add zoom icon
+        icon = get_icon(":/icons/zoom-in")
+        icon_pm = icon.pixmap(icon.availableSizes()[0])
         zoom_icon = QLabel(self)
-        zoom_icon.setPixmap(QPixmap(":/icons/zoom-in.png"))
+        zoom_icon.setPixmap(icon_pm)
         self.statusbar.addPermanentWidget(zoom_icon)
         # add zoom slider
         self.zoom_levels = [25,30,40,45,50,55,60,65,75,80,90,100,110,120,140,160,180,200]
@@ -115,10 +119,23 @@ class Window(QMainWindow, Ui_MainWindow):
         self.toolGroup.triggered.connect(self.onToolClick)
         for tool_name in toolbar_tools:
             title, icon_name = tools_template[tool_name]
-            action = self.toolBar.addAction(QIcon(":/icons/%s.png"%icon_name), title)
+            action = self.toolBar.addAction(get_icon(f":/icons/{icon_name}"), title)
             action.name = tool_name
             action.setCheckable(True)
             self.toolGroup.addAction(action)
+
+
+        spacer = QWidget(self.toolBar)
+        spacer.setSizePolicy(1|2|4,1|4)
+        self.toolBar.addWidget(spacer)
+        self.searchBox = SearchBox(self.toolBar)
+        self.searchBox.setPlaceholderText("Search Molecules ...")
+        self.searchBox.setMaximumWidth(240)
+        self.toolBar.addWidget(self.searchBox)
+        self.templateSearchBtn = PixmapButton(self.toolBar)
+        self.templateSearchBtn.setPixmap(QPixmap(":/icons/pubchem.png"))
+        self.templateSearchBtn.setToolTip("Search molecules online")
+        self.toolBar.addWidget(self.templateSearchBtn)
 
         # create atomtool actions
         atomsLabel = QLabel("Elements :", self)
@@ -180,7 +197,7 @@ class Window(QMainWindow, Ui_MainWindow):
             self.rightGrid.addWidget(btn, row, col, 1,1)
             icon_path = find_template_icon(template.name)
             if icon_path:
-                action.setIcon(QIcon(icon_path))
+                action.setIcon(get_icon(icon_path))
                 btn.setIconSize(QSize(32,32))
 
         templatesBtn = QPushButton("More...", self.rightFrame)
@@ -190,6 +207,12 @@ class Window(QMainWindow, Ui_MainWindow):
         self.rightGrid.addWidget(widget, self.rightGrid.rowCount(), 0, 1,cols)
         self.templateLayout = FlowLayout(widget)
         self.templateLayout.setContentsMargins(0,0,0,0)
+
+        # add template search widget
+        self.templateSearchWidget = None
+        self.searchBox.textChanged.connect(self.onSearchTextChange)
+        self.searchBox.escapePressed.connect(self.searchBox.clear)
+        self.templateSearchBtn.clicked.connect(self.onWebSearchClick)
 
         # select structure tool
         self.selectToolByName("StructureTool")
@@ -208,6 +231,7 @@ class Window(QMainWindow, Ui_MainWindow):
         self.actionRedo.triggered.connect(self.redo)
         self.actionGenSmiles.triggered.connect(self.generateSmiles)
         self.actionReadSmiles.triggered.connect(self.readSmiles)
+        self.actionDrawingSettings.triggered.connect(self.drawingSettings)
         self.actionCheckForUpdate.triggered.connect(self.checkForUpdate)
         self.actionAbout.triggered.connect(self.showAbout)
 
@@ -219,6 +243,7 @@ class Window(QMainWindow, Ui_MainWindow):
         height = int(self.settings.value("WindowHeight", 540))
         maximized = self.settings.value("WindowMaximized", "false") == "true"
         curr_dir = self.settings.value("WorkingDir", "")
+        self.loadSettings()
 
         # other things to initialize
         if not curr_dir or not os.path.isdir(curr_dir):
@@ -248,6 +273,102 @@ class Window(QMainWindow, Ui_MainWindow):
             self.thread.started.connect(self.updater.checkForUpdate)
             self.thread.finished.connect(self.thread.deleteLater)
             QTimer.singleShot(1000, self.thread.start)
+
+
+    def loadSettings(self):
+        """ Load drawing settings """
+        settings = QSettings("chemcanvas", "chemcanvas", self)
+        settings.beginGroup("Custom_Style")
+        Settings.atom_font_size = int(settings.value("atom_font_size", Settings.atom_font_size))
+        Settings.bond_length = int(settings.value("bond_length", Settings.bond_length))
+        Settings.bond_width = float(settings.value("bond_width", Settings.bond_width))
+        Settings.bond_spacing = float(settings.value("bond_spacing", Settings.bond_spacing))
+        Settings.electron_dot_size = float(settings.value("electron_dot_size", Settings.electron_dot_size))
+        Settings.arrow_line_width = float(settings.value("arrow_line_width", Settings.arrow_line_width))
+        Settings.arrow_head_dimensions = str_to_tuple(settings.value("arrow_head_dimensions",
+                                        str(Settings.arrow_head_dimensions)))
+        Settings.plus_size = int(settings.value("plus_size", Settings.plus_size))
+        settings.endGroup()
+
+
+    def onWebSearchClick(self):
+        if not self.searchBox.text():
+            QMessageBox.warning(self, "SearchBox Empty !", "First type compound name in search box, then click this button")
+            return
+        self.templateSearchWidget.webSearchTemplate()
+
+    def onSearchTextChange(self, text):
+        if text and not self.templateSearchWidget:
+            self.templateSearchWidget = TemplateSearchWidget(self)
+            self.templateSearchWidget.setSearchBox(self.searchBox)
+            self.templateSearchWidget.templateSelected.connect(self.useTemplate)
+        # show or hide
+        self.templateSearchWidget.setVisible(bool(text))
+
+
+    def useTemplate(self, title):
+        """ place template on paper and add to recent templates """
+        self.searchBox.clear()
+        btn = self.addToRecentTemplates(title)
+        btn.defaultAction().trigger()# select the button
+        if not self.templateSearchWidget.autoPlacementBtn.isChecked():
+            return
+        mol = App.template_manager.templates[title]
+        x1,y1,x2,y2 = mol.bounding_box()
+        x,y = App.paper.find_place_for_obj_size(x2-x1, y2-y1)
+        mol = App.template_manager.get_transformed_template(mol, (x,y))
+        App.paper.addObject(mol)
+        draw_recursively(mol)
+        App.paper.save_state_to_undo_stack("add template : %s"% mol.name)
+
+    def addToRecentTemplates(self, title):
+        """ show template in recent templates list """
+        template = App.template_manager.templates[title]
+        for i in range(self.templateLayout.count()):
+            widget = self.templateLayout.itemAt(i).widget()
+            if widget.defaultAction().value == title:# template already exists in recents
+                return widget
+        btn = PixmapButton(self)
+        paper = Paper()
+        thumbnail = paper.renderObjects([template]).scaledToHeight(48, Qt.SmoothTransformation)
+        btn.setPixmap(QPixmap.fromImage(thumbnail))
+        self.templateLayout.addWidget(btn)
+        action = QAction(title, self)
+        action.key = "template"
+        action.value = title
+        action.setCheckable(True)
+        self.structureGroup.addAction(action)
+        btn.setDefaultAction(action)
+        btn.setToolTip(title)
+        # if added template Button is not properly visible, remove least used Buttons
+        key = lambda t: App.template_manager.templates_usage_count[t]
+        recents = sorted(App.template_manager.recent_templates, key=key)
+        for template in recents:
+            wait(30)# give time to have visible changes
+            if btn.visibleRegion().boundingRect().height() >= btn.size().height():
+                break
+            # remove template btn
+            i = App.template_manager.recent_templates.index(template)
+            App.template_manager.recent_templates.pop(i)
+            widget = self.templateLayout.itemAt(i).widget()
+            self.templateLayout.removeWidget(widget)
+            widget.deleteLater()
+        App.template_manager.recent_templates.append(title)
+        App.template_manager.templates_usage_count[title] = 0
+        return btn
+
+    def showTemplateChooserDialog(self):
+        """ On clicking More templates button, show template chooser dialog """
+        dlg = TemplateChooserDialog(self)
+        if dlg.exec()==dlg.Accepted:
+            title = dlg.selected_template
+            btn = self.addToRecentTemplates(title)
+            btn.defaultAction().trigger()# select the button
+
+    def manageTemplates(self):
+        """ manage template files and its templates """
+        dlg = TemplateManagerDialog(self)
+        dlg.exec()
 
 
     def onZoomSliderMoved(self, index):
@@ -314,7 +435,7 @@ class Window(QMainWindow, Ui_MainWindow):
                 toolGroup = QActionGroup(self.subToolBar)
                 selected_value = toolsettings[group_name]
                 for (action_name, title, icon_name) in templates:
-                    action = self.subToolBar.addAction(QIcon(":/icons/%s.png"%icon_name), title)
+                    action = self.subToolBar.addAction(get_icon(f":/icons/{icon_name}"), title)
                     action.key = group_name
                     action.value = action_name
                     action.setCheckable(True)
@@ -328,7 +449,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
             elif group_type=="Button":
                 title, icon_name = templates
-                icon = icon_name and QIcon(":/icons/%s.png"%icon_name) or QIcon()
+                icon = icon_name and get_icon(f":/icons/{icon_name}") or QIcon()
                 action = self.subToolBar.addAction(icon, title)
                 action.key = group_name
                 action.value = title
@@ -476,14 +597,22 @@ class Window(QMainWindow, Ui_MainWindow):
             if not filename:
                 return False
         # read file
-        reader = create_file_reader(filename)
-        if not reader:
-            self.showStatus("Failed to read file : fileformat not supported !")
-            return False
-        doc = reader.read(filename)
-        if not doc:
-            self.showStatus("Failed to read file contents !")
-            return False
+        try:
+            reader = create_file_reader(filename)
+            if not reader:
+                self.showStatus("Failed to read file : fileformat not supported !")
+                return False
+            doc = reader.read(filename)
+            if reader.status=="failed":
+                self.showError("Failed to read file !", reader.message)
+                return
+            elif reader.status=="warning":
+                self.showStatus(reader.message)
+            if not doc or not doc.objects:
+                return False
+        except Exception as e:
+            self.showException(e)
+            return
         # On Success
         is_new = App.paper.setDocument(doc)
         App.paper.save_state_to_undo_stack("Open File")
@@ -502,12 +631,20 @@ class Window(QMainWindow, Ui_MainWindow):
         if not writer:
             return False
         # write document
-        doc = App.paper.getDocument()
-        if writer.write(doc, filename):
-            self.filename = filename
-            App.paper.undo_manager.mark_saved_to_disk()
-            self.enableSaveButton(False)
-
+        try:
+            doc = App.paper.getDocument()
+            writer.write(doc, filename)
+            if writer.status=="failed":
+                self.showError("Failed to save !", writer.message)
+                return
+            elif writer.status=="warning":
+                self.showStatus(writer.message)
+        except Exception as e:
+            self.showException(e)
+            return
+        self.filename = filename
+        App.paper.undo_manager.mark_saved_to_disk()
+        self.enableSaveButton(False)
 
     def overwrite(self):
         if not self.filename:
@@ -564,64 +701,14 @@ class Window(QMainWindow, Ui_MainWindow):
                         path, "SVG Image (*.svg)")
         if not filename:
             return
+        try:
+            svg = App.paper.getSvg()
+            # save file
+            with io.open(filename, 'w', encoding='utf-8') as svg_file:
+                svg_file.write(svg)
+        except Exception as e:
+            self.showException(e)
 
-        items = App.paper.get_items_of_all_objects()
-        svg_paper = SvgPaper()
-        for item in items:
-            draw_graphicsitem(item, svg_paper)
-        x1,y1, x2,y2 = App.paper.allObjectsBoundingBox()
-        x1, y1, x2, y2 = x1-6, y1-6, x2+6, y2+6
-        svg_paper.setViewBox(x1,y1, x2-x1, y2-y1)
-        svg = svg_paper.getSvg()
-        # save file
-        with io.open(filename, 'w', encoding='utf-8') as svg_file:
-            svg_file.write(svg)
-
-
-    def showTemplateChooserDialog(self):
-        dlg = TemplateChooserDialog(self)
-        if dlg.exec()==dlg.Accepted:
-            title = dlg.selected_template
-            template = App.template_manager.templates[title]
-            for i in range(self.templateLayout.count()):
-                widget = self.templateLayout.itemAt(i).widget()
-                if widget.defaultAction().value == title:# template already exists in recents
-                    widget.defaultAction().trigger()# select the button
-                    return
-            btn = PixmapButton(self)
-            paper = Paper()
-            thumbnail = paper.renderObjects([template]).scaledToHeight(48, Qt.SmoothTransformation)
-            btn.setPixmap(QPixmap.fromImage(thumbnail))
-            self.templateLayout.addWidget(btn)
-            action = QAction(title, self)
-            action.key = "template"
-            action.value = title
-            action.setCheckable(True)
-            self.structureGroup.addAction(action)
-            btn.setDefaultAction(action)
-            # select this button and template
-            action.trigger()
-            # if added template Button is not properly visible, remove least used Buttons
-            key = lambda t: App.template_manager.templates_usage_count[t]
-            recents = sorted(App.template_manager.recent_templates, key=key)
-            for template in recents:
-                wait(30)# give time to have visible changes
-                if btn.visibleRegion().boundingRect().height() >= btn.size().height():
-                    break
-                # remove template btn
-                i = App.template_manager.recent_templates.index(template)
-                App.template_manager.recent_templates.pop(i)
-                widget = self.templateLayout.itemAt(i).widget()
-                self.templateLayout.removeWidget(widget)
-                widget.deleteLater()
-            App.template_manager.recent_templates.append(title)
-            App.template_manager.templates_usage_count[title] = 0
-
-
-
-    def manageTemplates(self):
-        dlg = TemplateManagerDialog(self)
-        dlg.exec()
 
     # ------------------------ EDIT -------------------------
 
@@ -638,33 +725,71 @@ class Window(QMainWindow, Ui_MainWindow):
         if not mols:
             self.showStatus("No molecule is drawn ! Please draw a molecule first.")
             return
-        smiles_gen = SmilesGenerator()
-        smiles = smiles_gen.generate(mols[-1])
-        dlg = TextBoxDialog("Generated SMILES :", smiles, self)
-        dlg.setWindowTitle("SMILES")
-        dlg.exec()
+        try:
+            smiles_gen = SmilesGenerator()
+            smiles = smiles_gen.generate(mols[-1])
+            dlg = TextBoxDialog("Generated SMILES :", smiles, self)
+            dlg.setWindowTitle("SMILES")
+            dlg.exec()
+        except Exception as e:
+            self.showException(e)
 
     def readSmiles(self):
         dlg = TextBoxDialog("Enter SMILES :", "", self, mode="input")
         if dlg.exec()!=QDialog.Accepted:
             return
         text = dlg.text()
-        reader = SmilesReader()
-        mol = reader.read(text)
-        if not mol:
-            return
-        calculate_coords(mol, bond_length=1.0, force=1)
-        App.paper.addObject(mol)
-        draw_recursively(mol)
-        App.paper.save_state_to_undo_stack("Read SMILES")
+        try:
+            reader = SmilesReader()
+            mol = reader.read(text)
+            if not mol:
+                return
+            calculate_coords(mol, bond_length=1.0, force=1)
+            App.paper.addObject(mol)
+            draw_recursively(mol)
+            App.paper.save_state_to_undo_stack("Read SMILES")
+        except Exception as e:
+            self.showException(e)
 
     # ------------------------- Others -------------------------------
+
+    def drawingSettings(self):
+        dlg = SettingsDialog(self)
+        if dlg.exec()==dlg.Accepted:
+            objects = get_objs_with_all_children(App.paper.objects)
+            atoms = set(o for o in objects if isinstance(o,Atom))
+            for atom in atoms:
+                atom.font_size = Settings.atom_font_size
+            bonds = set(o for o in objects if isinstance(o,Bond))
+            for bond in bonds:
+                bond.line_width = Settings.bond_width
+                bond.line_spacing = Settings.bond_spacing
+            electrons = set(o for o in objects if isinstance(o,Electron))
+            for electron in electrons:
+                electron.dot_size = Settings.electron_dot_size
+            arrows = set(o for o in objects if isinstance(o,Arrow))
+            for arrow in arrows:
+                arrow.line_width = Settings.arrow_line_width
+                arrow.update_head_dimensions()
+            pluses = set(o for o in objects if isinstance(o,Plus))
+            for plus in pluses:
+                plus.font_size = Settings.plus_size
+            objs = sorted(objects, key=lambda x : x.redraw_priority)
+            [o.draw() for o in objs]
 
     def showStatus(self, msg):
         self.statusbar.showMessage(msg)
 
     def clearStatus(self):
         self.statusbar.clearMessage()
+
+    def showError(self, title, text):
+        QMessageBox.critical(self, title, text)
+
+    def showException(self, error):
+        dlg = ErrorDialog(self, str(error), traceback.format_exc())
+        dlg.exec()
+
 
     def checkForUpdate(self):
         """ manual update check """
@@ -694,10 +819,16 @@ class Window(QMainWindow, Ui_MainWindow):
     def showAbout(self):
         lines = ("<h1>ChemCanvas</h1>",
             "A Chemical Drawing Tool<br><br>",
-            "Version : %s<br>" % __version__,
+            "ChemCanvas : %s<br>" % __version__,
             "Qt : %s<br>" % qVersion(),
+            "Python : %s<br>" % platform.python_version(),
             "Copyright &copy; %s %s &lt;%s&gt;" % (COPYRIGHT_YEAR, AUTHOR_NAME, AUTHOR_EMAIL))
         QMessageBox.about(self, "About ChemCanvas", "".join(lines))
+
+    def resizeEvent(self, ev):
+        QMainWindow.resizeEvent(self, ev)
+        if self.templateSearchWidget:
+            self.templateSearchWidget.reposition()
 
     def closeEvent(self, ev):
         """ Save all settings on window close """
@@ -710,11 +841,6 @@ class Window(QMainWindow, Ui_MainWindow):
         QMainWindow.closeEvent(self, ev)
 
 
-
-def wait(millisec):
-    loop = QEventLoop()
-    QTimer.singleShot(millisec, loop.quit)
-    loop.exec()
 
 
 def get_new_filename(filename):
@@ -737,10 +863,18 @@ def get_new_filename(filename):
     return path
 
 
+def is_dark_mode():
+    """ detects if dark theme is in use """
+    defaultPalette = QPalette()
+    text = defaultPalette.color(QPalette.WindowText)
+    window = defaultPalette.color(QPalette.Window)
+    return text.lightness() > window.lightness()
+
 
 
 def main():
     app = QApplication(sys.argv)
+    App.dark_mode = is_dark_mode()
     # use fusion style on Windows platform
     if platform.system()=="Windows" and "Fusion" in QStyleFactory.keys():
         app.setStyle(QStyleFactory.create("Fusion"))

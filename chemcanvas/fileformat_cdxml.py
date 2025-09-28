@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
 # Copyright (C) 2024-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
-from app_data import App, periodic_table, atomic_num_to_symbol
+from app_data import Settings, periodic_table, atomic_num_to_symbol
 from arrow import Arrow
 from text import Plus
 from fileformat import *
@@ -27,6 +27,7 @@ class CDXML(FileFormat):
     bond_stereo_remap = {"WedgeBegin":"wedge", "WedgedHashBegin":"hashed_wedge", "Bold":"bold"}
 
     def reset(self):
+        self.reset_status()
         # for read mode
         self.id_to_obj = {}
         self.color_table = [(0,0,0), (255,255,255), (255,255,255), (0,0,0)]
@@ -60,21 +61,30 @@ class CDXML(FileFormat):
         dom_doc = Dom.parse(filename)
         cdxmls = dom_doc.getElementsByTagName("CDXML")
         if not cdxmls:
+            self.message = "File has no CDXML element !"
             return
         root = cdxmls[0]
         # root node contains 'page', 'fonttable' and 'colortable' children
         self.doc = Document()
-        # read color table
-        elms = root.getElementsByTagName("colortable")
-        for elm in elms:
-            self.readColorTable(elm)
-        # A Document must contain atleast one page object
-        # Here, we can read the first page only
-        elms = root.getElementsByTagName("page")
-        if elms:
+        try:
+            # read color table
+            elms = root.getElementsByTagName("colortable")
+            for elm in elms:
+                self.readColorTable(elm)
+            # A Document must contain atleast one page object
+            # Here, we can read the first page only
+            elms = root.getElementsByTagName("page")
+            if not elms:
+                self.message = "File has no page element !"
+                return
             self.readPage(elms[0])
 
-        return self.doc.objects and self.doc or None
+            self.status = "ok"
+            return self.doc.objects and self.doc or None
+
+        except FileError as e:
+            self.message = str(e)
+            return
 
 
     def readPage(self, element):
@@ -108,19 +118,21 @@ class CDXML(FileFormat):
 
         for atom in self.charged_atoms:
             charge = atom.properties_["charge"]
-            mark = create_new_mark_in_atom(atom, "charge_plus")
+            mark = Charge()
             mark.setValue(charge)
+            atom.add_mark(mark)
             atom.properties_.pop("charge")
 
         for atom in self.radicals:
             radical = atom.properties_["radical"]
+            marks = []
             if radical=="Singlet":
-                create_new_mark_in_atom(atom, "electron_pair")
+                marks = [Electron("2")]
             elif radical=="Doublet":
-                create_new_mark_in_atom(atom, "electron_single")
+                marks = [Electron("1")]
             elif radical=="Triplet":
-                create_new_mark_in_atom(atom, "electron_single")
-                create_new_mark_in_atom(atom, "electron_single")
+                marks = [Electron("1"), Electron("1")]
+            [atom.add_mark(mark) for mark in marks]
             atom.properties_.pop("radical")
 
 
@@ -240,17 +252,20 @@ class CDXML(FileFormat):
     # --------------------------- WRITE -------------------------------
 
     def write(self, doc, filename):
-        self.reset()
         string = self.generate_string(doc)
+        if not string:
+            return False
         try:
             with io.open(filename, "w", encoding="utf-8") as out_file:
                 out_file.write(string)
             return True
         except:
+            self.message = "Filepath is not writable !"
             return False
 
 
     def generate_string(self, doc):
+        self.reset()
         imp = Dom.getDOMImplementation()
         # this way we can add doctype. but we dont, because toprettyxml() causes
         # a line break inside doctype line and MarvinJS fails to read
@@ -264,37 +279,43 @@ class CDXML(FileFormat):
         page = dom_doc.createElement("page")
         page.setAttribute("Width", "%f"% (doc.page_w*self.coord_multiplier))
         page.setAttribute("Height", "%f"% (doc.page_h*self.coord_multiplier))
-        # write objects
-        for obj in doc.objects:
-            self.createObjectNode(obj, page)
-        # detect and write reaction
-        components = identify_reaction_components(doc.objects)
-        if components:
-            self.createReactionNode(components, page)
-        # MarvinJS requires BondLength attribute, otherwise all atoms are on single point.
-        mols = filter(lambda o: o.class_name=="Molecule", doc.objects)
-        bonds = reduce(operator.add, [list(mol.bonds) for mol in mols], [])
-        bond_len = calc_average_bond_length(bonds) * self.coord_multiplier
-        root.setAttribute("BondLength", "%g"%bond_len)
-        # write color table (without it MarvinJS fails to read)
-        # color index 0 and 1 is black and white respectively, they are not stored in
-        # color table. color 2 and color 3 are default background and foreground color.
-        colortable = dom_doc.createElement("colortable")
-        for color in self.color_table[2:]:
-            color_elm = dom_doc.createElement("color")
-            colortable.appendChild(color_elm)
-            for i,clr in enumerate(list("rgb")):
-                color_elm.setAttribute(clr, "%g"%(color[i]/255))
-        # color table is generated while creating object elements.
-        # and we also need to place colortable before page
-        root.appendChild(colortable)
-        root.appendChild(page)
-        # set generated ids
-        for obj,id in self.obj_to_id.items():
-            self.obj_element_map[obj].setAttribute("id", id)
-        h1 = '<?xml version="1.0" encoding="UTF-8"?>\n'
-        h2 = '<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd">\n'
-        return h1 + h2 + root.toprettyxml(indent="  ")
+        try:
+            # write objects
+            for obj in doc.objects:
+                self.createObjectNode(obj, page)
+            # detect and write reaction
+            components = identify_reaction_components(doc.objects)
+            if components:
+                self.createReactionNode(components, page)
+            # MarvinJS requires BondLength attribute, otherwise all atoms are on single point.
+            mols = filter(lambda o: o.class_name=="Molecule", doc.objects)
+            bonds = reduce(operator.add, [list(mol.bonds) for mol in mols], [])
+            bond_len = calc_average_bond_length(bonds) * self.coord_multiplier
+            root.setAttribute("BondLength", "%g"%bond_len)
+            # write color table (without it MarvinJS fails to read)
+            # color index 0 and 1 is black and white respectively, they are not stored in
+            # color table. color 2 and color 3 are default background and foreground color.
+            colortable = dom_doc.createElement("colortable")
+            for color in self.color_table[2:]:
+                color_elm = dom_doc.createElement("color")
+                colortable.appendChild(color_elm)
+                for i,clr in enumerate(list("rgb")):
+                    color_elm.setAttribute(clr, "%g"%(color[i]/255))
+            # color table is generated while creating object elements.
+            # and we also need to place colortable before page
+            root.appendChild(colortable)
+            root.appendChild(page)
+            # set generated ids
+            for obj,id in self.obj_to_id.items():
+                self.obj_element_map[obj].setAttribute("id", id)
+            h1 = '<?xml version="1.0" encoding="UTF-8"?>\n'
+            h2 = '<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd">\n'
+            output = h1 + h2 + root.toprettyxml(indent="  ")
+            self.status = "ok"
+            return output
+        except FileError as e:
+            self.message = str(e)
+            return ""
 
 
     def createObjectNode(self, obj, parent):
@@ -338,7 +359,8 @@ class CDXML(FileFormat):
         # radical
         multi = atom.multiplicity
         if multi in (1,2,3):
-            elm.setAttribute("Radical", str(multi))
+            vals = ["None", "Singlet", "Doublet", "Triplet"]
+            elm.setAttribute("Radical", vals[multi])
         return elm
 
 

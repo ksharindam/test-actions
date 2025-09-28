@@ -1,6 +1,8 @@
 from setuptools import setup
-from wheel.bdist_wheel import bdist_wheel
-#from setuptools.command.bdist_wheel import bdist_wheel
+try:
+    from setuptools.command.bdist_wheel import bdist_wheel
+except:
+    from wheel.bdist_wheel import bdist_wheel
 from subprocess import check_call
 import platform
 
@@ -11,9 +13,6 @@ class BdistWheel(bdist_wheel):
         check_call("pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui".split())
         bdist_wheel.finalize_options(self)
 
-def readme():
-    with open('README.md') as f:
-        return f.read()
 
 if platform.system()=='Linux':
     data_files = [('share/applications', ['data/chemcanvas.desktop']),

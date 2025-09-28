@@ -22,8 +22,8 @@
       <li>Supports modern file formats like Marvin MRV, Chemdraw CDXML</li>
       <li>Export to PNG, SVG, and Editable SVG</li>
       <li>Many bond types including wavy bond, Cis/Trans, Bold double, Any Bond etc</li>
-      <li>Easy coloring tool</li>
       <li>Aromaticity detection and add delocalization ring</li>
+      <li>Search and load structure from PubChem</li>
      </ul>
   </description>
 
@@ -40,12 +40,13 @@
   </branding>
 
   <releases>
-    <release version="0.7.28" date="2025-05-27">
+    <release version="0.9.3" date="2025-09-28">
       <description>
         <ul>
-          <li>Add Harpoon, Circular, Hollow, No-Reaction, Reversible arrow types</li>
-          <li>Show invisible carbon between two double bonds as a dot</li>
-          <li>Merge ArrowTool and PlusTool</li>
+          <li>Add drawing settings dialog.</li>
+          <li>Adapt icons in dark mode.</li>
+          <li>Can open and save as Editable Svg.</li>
+          <li>Program will never crash while opening or saving file.</li>
         </ul>
       </description>
     </release>
@@ -61,7 +62,7 @@
         <image>https://github.com/ksharindam/chemcanvas-data/raw/main/Screenshots/screenshot2.png</image>
       </screenshot>
     <screenshot>
-        <caption>User Templates</caption>
+        <caption>Templates</caption>
         <image>https://github.com/ksharindam/chemcanvas-data/raw/main/Screenshots/screenshot3.png</image>
       </screenshot>
     <screenshot>

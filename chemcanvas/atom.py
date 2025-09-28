@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
 # Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
-from app_data import App, Settings, periodic_table
+from math import cos, sin
+from math import pi as PI
+from functools import reduce
+import operator
+import re
+
+from app_data import App, Settings, periodic_table, auto_hydrogen_elements
 from drawing_parents import DrawableObject, Color, Font, Align
 from graph import Vertex
 from common import find_matching_parentheses, list_difference
 import geometry as geo
-from math import cos, sin
-from math import pi as PI
-
-from functools import reduce
-import operator
-import re
 
 global atom_id_no
 atom_id_no = 1
@@ -29,8 +29,6 @@ class Atom(Vertex, DrawableObject):
     meta__undo_copy = ("_neighbors", "marks")
     meta__undo_children_to_record = ("marks",)
     meta__scalables = ("x", "y", "z")
-
-    auto_hydrogen_elements = {"B", "C","Si", "N","P","As", "O","S", "F","Cl","Br","I"}
 
     def __init__(self, symbol='C'):
         DrawableObject.__init__(self)
@@ -154,6 +152,14 @@ class Atom(Vertex, DrawableObject):
         if num!=None:
             self.oxidation_num_text = roman_ox_num_dict[num]
         self.oxidation_num_pos = None
+
+    def add_mark(self, mark):
+        mark.atom = self
+        x,y = self._decide_mark_pos(mark)
+        mark.set_pos(x,y)
+        # this must be done after setting the pos, otherwise it will not
+        # try to find new place for mark
+        self.marks.append(mark)
 
     @property
     def chemistry_items(self):
@@ -342,7 +348,7 @@ class Atom(Vertex, DrawableObject):
         """ update hydrogens count and text after valency or occupied valency change """
         # first calculate hydrogen count, then update hydrogens text
         if self.auto_hydrogens:
-            if self.symbol in self.auto_hydrogen_elements:
+            if self.symbol in auto_hydrogen_elements:
                 self.hydrogens = self.free_valency > 0 and self.free_valency or 0
             else:
                 self.hydrogens = 0
@@ -442,6 +448,32 @@ class Atom(Vertex, DrawableObject):
             dist = geo.point_distance((x,y), (x1,y1)) + 0.4*self.font_size
 
         self.oxidation_num_pos = geo.circle_get_point((x,y), dist, direction)
+
+    def _decide_mark_pos(self, mark):
+        """ find position for new marks """
+        x, y = self.x, self.y
+
+        angles = self.occupied_angles
+        if len(angles) == int(self.hydrogen_pos!=None):# single atom molecule with no marks
+            dist = 0.5*self.font_size + 0.75*mark.size
+            return x, y-dist
+
+        angles.append( 2*PI + min( angles))
+        angles.sort(reverse=True)
+        diffs = list_difference( angles)
+        i = diffs.index( max( diffs))
+        angle = (angles[i] + angles[i+1]) / 2
+        direction = (x+cos(angle), y+sin(angle))
+
+        # calculate the distance
+        if not self.show_symbol and self.neighbors:# hidden carbon atom
+            dist = round(1.5*mark.size)
+        else:
+            x0, y0 = geo.circle_get_point((x,y), 500, direction)
+            x1, y1 = geo.rect_get_intersection_of_line(self.bounding_box(), [x,y,x0,y0])
+            dist = geo.point_distance((x,y), (x1,y1)) + 0.75*mark.size
+
+        return geo.circle_get_point((x,y), dist, direction)
 
 
     def redraw_needed(self):

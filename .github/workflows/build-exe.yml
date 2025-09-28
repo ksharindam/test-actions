@@ -1,0 +1,49 @@
+name: Build
+on:
+  push:
+  workflow_dispatch:
+#  release:
+
+# required for uploading assets
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8.7'
+
+      - name: Install Dependencies
+        run: |
+          pip3 install PyQt5
+          pip3 install pyinstaller
+
+      - name: Build ChemCanvas
+        run: |
+          pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc
+          pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
+          cd Windows
+          pyinstaller chemcanvas.spec
+
+      - name: Create Exe Installer
+        uses: joncloud/makensis-action@v5.0
+        with:
+          script-file: ./Windows/ChemCanvas.nsi
+
+      - uses: pozetroninc/github-action-get-latest-release@master
+        id: latest-tag
+        with:
+          repository: ${{ github.repository }}
+
+      - name: Upload Release Assets
+        uses: AButler/upload-release-assets@v3.0
+        with:
+          files: "Windows/*.exe"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          release-tag: ${{ steps.latest-tag.outputs.release }}

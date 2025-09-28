@@ -7,7 +7,7 @@ from drawing_parents import Color, Font, Align, PenStyle, LineCap, hex_color
 import geometry as geo
 from common import float_to_str, bbox_of_bboxes
 from tool_helpers import get_objs_with_all_children, draw_objs_recursively, move_objs
-from fileformat import Document
+from document import Document
 
 from PyQt5.QtWidgets import QGraphicsScene, QGraphicsItem, QGraphicsTextItem, QMenu
 from PyQt5.QtCore import QRectF, QPointF, Qt
@@ -516,6 +516,18 @@ class Paper(QGraphicsScene):
         x2, y2 = min(x2+margin,w), min(y2+margin, h)
         image = image.copy(x1, y1, x2-x1, y2-y1)
         return image
+
+
+    def getSvg(self):
+        items = self.get_items_of_all_objects()
+        svg_paper = SvgPaper()
+        for item in items:
+            draw_graphicsitem(item, svg_paper)
+        x1,y1, x2,y2 = self.allObjectsBoundingBox()
+        x1, y1, x2, y2 = x1-6, y1-6, x2+6, y2+6
+        svg_paper.setViewBox(x1,y1, x2-x1, y2-y1)
+        return svg_paper.getSvg()
+
 
     def createMenu(self, title=''):
         # title is only meaningful for submenu. for root menu it must be empty
