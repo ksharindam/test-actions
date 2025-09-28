@@ -1,7 +1,6 @@
 name: Publish Snap
 on:
   workflow_dispatch:
-#  release:
 
 # required for uploading assets
 permissions:

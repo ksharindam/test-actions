@@ -1,8 +1,6 @@
 name: Build Exe
 on:
-  push:
   workflow_dispatch:
-#  release:
 
 # required for uploading assets
 permissions:
@@ -10,7 +8,7 @@ permissions:
 
 jobs:
   exe:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v3
