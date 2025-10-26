@@ -18,7 +18,6 @@ AppDir/
 
 # User created
 cache/
-debian/
 TODO
 *_rc.py
 ui_*.py
