@@ -36,7 +36,7 @@ setup(
       'gui_scripts': ['chemcanvas=chemcanvas.main:main'],
     },
     data_files = data_files,
-    cmdclass = {'bdist_wheel': BdistWheel},
+    cmdclass = {'bdist_wheel': BdistWheel, 'install': Install},
     include_package_data=True,
     zip_safe=False
     )
