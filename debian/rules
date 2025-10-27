@@ -13,3 +13,5 @@ DESTDIR = $(CURDIR)/debian/$(PACKAGE)
 #	$(MAKE) install DESTDIR=`pwd`/debian/chemcanvas
 
 
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
