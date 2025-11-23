@@ -1,7 +1,6 @@
 name: Build Deb
 on:
   workflow_dispatch:
-  push:
 #  release:
 
 # required for uploading assets
