@@ -7,7 +7,7 @@ except:
 from subprocess import check_call
 import platform
 
-# allows to run commands before 'setup.py install'
+# allows to run commands before 'setup.py install' (used by dh-python)
 class Install(install):
     def run(self):
         check_call("pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc".split())
@@ -24,7 +24,8 @@ class BdistWheel(bdist_wheel):
 
 if platform.system()=='Linux':
     data_files = [('share/applications', ['data/chemcanvas.desktop']),
-                ('share/icons/hicolor/scalable/apps', ['data/chemcanvas.svg'])]
+                ('share/icons/hicolor/scalable/apps', ['data/chemcanvas.svg']),
+                ('share/mime/packages', ['data/chemcanvas-mime.xml'])]
 else:
     data_files = []
 

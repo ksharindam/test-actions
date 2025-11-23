@@ -49,6 +49,7 @@ class Paper(QGraphicsScene):
         self.removeItem(item)
 
         self.undo_manager = UndoManager(self)
+        self.show_carbon = "None"
 
 
 
@@ -374,6 +375,12 @@ class Paper(QGraphicsScene):
             obj.set_selected(True)
             self.selected_objs.append(obj)
 
+    def selectAll(self):
+        self.deselectAll()
+        gfx_items = set(self.items())
+        selected = [itm.object for itm in gfx_items & self.focusable_items]
+        [self.selectObject(o) for o in selected]
+
     def deselectObject(self, obj):
         if obj in self.selected_objs:
             obj.set_selected(False)
@@ -433,9 +440,10 @@ class Paper(QGraphicsScene):
 
 
     def mouseDoubleClickEvent(self, ev):
-        pos = ev.scenePos()
-        App.tool.on_mouse_double_click(pos.x(), pos.y())
-        QGraphicsScene.mouseReleaseEvent(self, ev)
+        if ev.button() == Qt.LeftButton:
+            pos = ev.scenePos()
+            App.tool.on_mouse_double_click(pos.x(), pos.y())
+        QGraphicsScene.mouseDoubleClickEvent(self, ev)
 
 
     def contextMenuEvent(self, ev):

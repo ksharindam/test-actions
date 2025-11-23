@@ -32,8 +32,7 @@ from app_data import App, get_icon
 from fileformats import *
 from template_manager import (TemplateManager, find_template_icon,
     TemplateChooserDialog, TemplateManagerDialog, TemplateSearchWidget)
-from smiles import SmilesReader, SmilesGenerator
-from coords_generator import calculate_coords
+from fileformat_smiles import Smiles
 from widgets import (PaletteWidget, TextBoxDialog, UpdateDialog, UpdateChecker,
     PixmapButton, FlowLayout, SearchBox, wait, ErrorDialog)
 from settings_ui import SettingsDialog
@@ -57,6 +56,17 @@ class Window(QMainWindow, Ui_MainWindow):
         self.setWindowTitle("ChemCanvas - " + __version__)
         self.setWindowIcon(QIcon(":/icons/chemcanvas.png"))
 
+        # Load settings
+        self.settings = QSettings("chemcanvas", "chemcanvas", self)
+        width = int(self.settings.value("WindowWidth", 840))
+        height = int(self.settings.value("WindowHeight", 540))
+        maximized = self.settings.value("WindowMaximized", "false") == "true"
+        curr_dir = self.settings.value("WorkingDir", "")
+        show_carbon = self.settings.value("ShowCarbon", "None")
+        # load App.Settings
+        self.loadSettings()
+
+        # setup layout and other widgets
         self.vertexGrid = QGridLayout(self.leftFrame)
         self.rightGrid = QGridLayout(self.rightFrame)
 
@@ -96,6 +106,17 @@ class Window(QMainWindow, Ui_MainWindow):
         App.paper = self.paper
         page_w, page_h = 595/72*Settings.render_dpi, 842/72*Settings.render_dpi
         self.paper.setSize(page_w, page_h)
+        App.paper.show_carbon = show_carbon
+
+        # menu actions
+        self.showCarbonActionGroup = QActionGroup(self)
+        self.showCarbonActionGroup.addAction(self.actionShowNone)
+        self.showCarbonActionGroup.addAction(self.actionShowTerminal)
+        self.showCarbonActionGroup.addAction(self.actionShowAll)
+        for action in self.showCarbonActionGroup.actions():
+            if action.text()==show_carbon:
+                action.setChecked(True)
+        self.showCarbonActionGroup.triggered.connect(self.onShowCarbonModeChange)
 
         self.toolBar.setIconSize(QSize(22,22))
         # add main actions
@@ -225,6 +246,7 @@ class Window(QMainWindow, Ui_MainWindow):
         self.actionSaveAs.triggered.connect(self.saveFileAs)
         self.actionPNG.triggered.connect(self.exportAsPNG)
         self.actionSVG.triggered.connect(self.exportAsSVG)
+        self.actionSvgEditable.triggered.connect(self.exportAsSvgEditable)
         self.actionTemplateManager.triggered.connect(self.manageTemplates)
 
         self.actionUndo.triggered.connect(self.undo)
@@ -236,14 +258,6 @@ class Window(QMainWindow, Ui_MainWindow):
         self.actionAbout.triggered.connect(self.showAbout)
 
         templatesBtn.clicked.connect(self.showTemplateChooserDialog)
-
-        # Load settings and Show Window
-        self.settings = QSettings("chemcanvas", "chemcanvas", self)
-        width = int(self.settings.value("WindowWidth", 840))
-        height = int(self.settings.value("WindowHeight", 540))
-        maximized = self.settings.value("WindowMaximized", "false") == "true"
-        curr_dir = self.settings.value("WorkingDir", "")
-        self.loadSettings()
 
         # other things to initialize
         if not curr_dir or not os.path.isdir(curr_dir):
@@ -555,22 +569,34 @@ class Window(QMainWindow, Ui_MainWindow):
 
     def onVertexTypeChange(self, action):
         """ called when one of the item in structureGroup is clicked """
-        prev_mode = toolsettings.getValue("StructureTool", 'mode')
-        mode = action.key
         self.selectToolByName("StructureTool")
-        if mode != prev_mode:
-            toolsettings['mode'] = mode
-            if mode =='atom':
-                if self.property_actions['bond_type'].checkedAction()==None:
-                    self.setCurrentToolProperty('bond_type', 'single')
-            if prev_mode=="atom":
-                # group and template mode does not need bond selected
-                if self.property_actions['bond_type'].checkedAction():
-                    self.property_actions['bond_type'].checkedAction().setChecked(False)
-                    toolsettings['bond_type'] = None
         toolsettings['structure'] = action.value
-        App.tool.on_property_change('mode', mode)
+        App.tool.on_property_change('mode', action.key)
 
+    def changeStructureToolMode(self, mode):
+        """ called by StructureTool.on_property_change(),
+        handles selecting and deselecting buttons """
+        if mode == toolsettings.getValue("StructureTool", 'mode'):
+            return
+        toolsettings['mode'] = mode
+        # settings for selected mode
+        if mode =='atom':
+            # select single bond if no bond is selected
+            if self.property_actions['bond_type'].checkedAction()==None:
+                self.setCurrentToolProperty('bond_type', 'single')
+        else:
+            # bond should be deselected in all other modes
+            if action := self.property_actions['bond_type'].checkedAction():
+                action.setChecked(False)
+                toolsettings['bond_type'] = None
+        # structure should be deselected in ring and chain tool
+        if mode in ('chain', 'ring'):
+            if action := self.structureGroup.checkedAction():
+                action.setChecked(False)
+        else:
+            # deselect ring or chain tool in all other modes
+            if action := self.property_actions['mode'].checkedAction():
+                action.setChecked(False)
 
 
     # ------------------------ FILE -------------------------
@@ -709,6 +735,15 @@ class Window(QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.showException(e)
 
+    def exportAsSvgEditable(self):
+        App.tool.clear()
+        path = self.getSaveFileName("svg")
+        filename, filtr = QFileDialog.getSaveFileName(self, "Save File",
+                        path, "SVG Image (*.svg)")
+        if not filename:
+            return
+        self.saveFile(filename)
+
 
     # ------------------------ EDIT -------------------------
 
@@ -726,7 +761,7 @@ class Window(QMainWindow, Ui_MainWindow):
             self.showStatus("No molecule is drawn ! Please draw a molecule first.")
             return
         try:
-            smiles_gen = SmilesGenerator()
+            smiles_gen = Smiles()
             smiles = smiles_gen.generate(mols[-1])
             dlg = TextBoxDialog("Generated SMILES :", smiles, self)
             dlg.setWindowTitle("SMILES")
@@ -740,11 +775,11 @@ class Window(QMainWindow, Ui_MainWindow):
             return
         text = dlg.text()
         try:
-            reader = SmilesReader()
-            mol = reader.read(text)
-            if not mol:
+            reader = Smiles()
+            doc = reader.read_string(text)
+            if not doc:
                 return
-            calculate_coords(mol, bond_length=1.0, force=1)
+            mol = doc.objects[0]
             App.paper.addObject(mol)
             draw_recursively(mol)
             App.paper.save_state_to_undo_stack("Read SMILES")
@@ -760,13 +795,11 @@ class Window(QMainWindow, Ui_MainWindow):
             atoms = set(o for o in objects if isinstance(o,Atom))
             for atom in atoms:
                 atom.font_size = Settings.atom_font_size
+                atom.radical_size = Settings.electron_dot_size
             bonds = set(o for o in objects if isinstance(o,Bond))
             for bond in bonds:
                 bond.line_width = Settings.bond_width
                 bond.line_spacing = Settings.bond_spacing
-            electrons = set(o for o in objects if isinstance(o,Electron))
-            for electron in electrons:
-                electron.dot_size = Settings.electron_dot_size
             arrows = set(o for o in objects if isinstance(o,Arrow))
             for arrow in arrows:
                 arrow.line_width = Settings.arrow_line_width
@@ -776,6 +809,15 @@ class Window(QMainWindow, Ui_MainWindow):
                 plus.font_size = Settings.plus_size
             objs = sorted(objects, key=lambda x : x.redraw_priority)
             [o.draw() for o in objs]
+
+
+    def onShowCarbonModeChange(self, action):
+        App.paper.show_carbon = action.text()
+        objects = get_objs_with_all_children(App.paper.objects)
+        [o.update_visibility() for o in objects if o.class_name=="Atom"]
+        objs = sorted(objects, key=lambda x : x.redraw_priority)
+        [o.draw() for o in objs]
+        self.settings.setValue("ShowCarbon", App.paper.show_carbon)
 
     def showStatus(self, msg):
         self.statusbar.showMessage(msg)

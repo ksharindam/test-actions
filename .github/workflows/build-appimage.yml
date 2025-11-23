@@ -1,0 +1,46 @@
+name: Build AppImage
+on:
+  workflow_dispatch:
+#  push:
+#  release:
+
+# required for uploading assets
+permissions:
+  contents: write
+
+jobs:
+  AppImage:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ARCH: x86_64
+            RUNS_ON: ubuntu-latest
+          - ARCH: aarch64
+            RUNS_ON: ubuntu-24.04-arm
+
+    name: Build ${{ matrix.ARCH }}
+    runs-on: ${{ matrix.RUNS_ON }}
+    env:
+      ARCH: ${{ matrix.ARCH }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build AppImage
+        run: |
+          cd AppImage
+          bash -ex build-in-docker.sh
+
+      - uses: pozetroninc/github-action-get-latest-release@master
+        id: latest-tag
+        with:
+          repository: ${{ github.repository }}
+
+      - name: Upload Release Assets
+        uses: AButler/upload-release-assets@v3.0
+        with:
+          files: "AppImage/ChemCanvas*.AppImage"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          release-tag: ${{ steps.latest-tag.outputs.release }}
+

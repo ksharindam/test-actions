@@ -73,6 +73,7 @@
      </property>
      <addaction name="actionPNG"/>
      <addaction name="actionSVG"/>
+     <addaction name="actionSvgEditable"/>
     </widget>
     <addaction name="actionOpen"/>
     <addaction name="actionSave"/>
@@ -106,7 +107,16 @@
     <property name="title">
      <string>Settings</string>
     </property>
+    <widget class="QMenu" name="menuShow_Carbon">
+     <property name="title">
+      <string>Show Carbon</string>
+     </property>
+     <addaction name="actionShowNone"/>
+     <addaction name="actionShowTerminal"/>
+     <addaction name="actionShowAll"/>
+    </widget>
     <addaction name="actionDrawingSettings"/>
+    <addaction name="menuShow_Carbon"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -253,6 +263,38 @@
   <action name="actionDrawingSettings">
    <property name="text">
     <string>Drawing Settings</string>
+   </property>
+  </action>
+  <action name="actionSvgEditable">
+   <property name="text">
+    <string>SVG (editable)</string>
+   </property>
+  </action>
+  <action name="actionShowNone">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>None</string>
+   </property>
+  </action>
+  <action name="actionShowTerminal">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Terminal</string>
+   </property>
+  </action>
+  <action name="actionShowAll">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>All</string>
    </property>
   </action>
  </widget>

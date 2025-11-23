@@ -15,12 +15,13 @@ from molecule import Molecule
 from atom import Atom
 from bond import Bond
 from delocalization import Delocalization
-from marks import Mark, Charge, Electron
 from text import Text, Plus
 from arrow import Arrow
 from bracket import Bracket
 import geometry as geo
-import common
+from common import bbox_of_bboxes, flatten
+from fileformat_smiles import Smiles
+from coords_generator import CoordsGenerator
 
 
 class Tool:
@@ -54,14 +55,20 @@ class Tool:
     def get_default_context_menu(self):
         focused = App.paper.focused_obj
         menu = create_object_property_menu(focused)
-        if isinstance(focused, Bond) or isinstance(focused, Atom) and not focused.is_group:
+        if isinstance(focused, (Atom,Bond)):
             if not menu:
                 menu = App.paper.createMenu()
-            template_menu = menu.addMenu("Template")
-            for title in ("Set as Template-%s"%focused.class_name, "Save Molecule as Template"):
-                action = template_menu.addAction(title)
-                action.data = {"object":focused}
-            template_menu.triggered.connect(on_template_menu_click)
+            if isinstance(focused, Atom) and focused.is_group:
+                action = menu.addAction("Expand Group")
+                action.data = {"object":focused, "callback":expand_functional_group}
+            else:
+                template_menu = menu.addMenu("Template")
+                for title in (f"Set as Template-{focused.class_name}", "Save Molecule as Template"):
+                    action = template_menu.addAction(title)
+                    action.data = {"object":focused, "title": title,
+                                    "callback":on_template_menu_click}
+        if menu:
+            menu.triggered.connect(on_object_context_menu_click)
         return menu
 
     def on_property_change(self, key, value):
@@ -82,6 +89,9 @@ class Tool:
     def clear_status(self):
         App.window.clearStatus()
 
+
+def on_object_context_menu_click(action):
+    action.data["callback"](action.data)
 
 # Menu Template Format -> ("Action1", SubMenu1, ...)
 # Menu = a tuple of actions and submenus.
@@ -105,17 +115,17 @@ def create_object_property_submenu(obj, menu, submenu_template):
     curr_val = obj.get_property(submenu_title)
     for title in action_titles:
         action = submenu.addAction(title)
-        action.data = {"key":submenu_title, "object":obj}
+        action.data = {"object":obj, "key":submenu_title, "value":title,
+                        "callback": set_object_property}
         if title==curr_val:
             action.setCheckable(True)
             action.setChecked(True)
-    submenu.triggered.connect(on_object_property_action_click)
     return submenu
 
 
-def on_object_property_action_click(action):
-    obj = action.data["object"]
-    obj.set_property(action.data["key"], action.text())
+def set_object_property(data):
+    obj = data["object"]
+    obj.set_property(data["key"], data["value"])
     # redraw required objects
     obj.draw()
     if isinstance(obj, Atom):
@@ -123,14 +133,35 @@ def on_object_property_action_click(action):
     App.paper.save_state_to_undo_stack("Object Property Change")
 
 
-def on_template_menu_click(action):
-    obj = action.data["object"]
-    if action.text() == "Save Molecule as Template":
+def on_template_menu_click(data):
+    obj = data["object"]
+    title = data["title"]
+    if title == "Save Molecule as Template":
         App.template_manager.save_template(obj.molecule)
-    elif action.text() == "Set as Template-Atom":
+    elif title == "Set as Template-Atom":
         obj.molecule.template_atom = obj
-    elif action.text() == "Set as Template-Bond":
+    elif title == "Set as Template-Bond":
         obj.molecule.template_bond = obj
+
+
+
+def expand_functional_group(data):
+    group_atom = data["object"]
+    mol = group_atom.molecule
+    if group_atom.symbol not in group_smiles_dict:
+        return
+    smiles = group_smiles_dict[group_atom.symbol]
+    reader = Smiles()
+    new_mol = reader.get_molecule(smiles)
+    if not new_mol:
+        return
+    group_atom.copy_from(new_mol.atoms[0], keep=["molecule", "x","y"])
+    group_atom.eat_atom(new_mol.atoms[0])
+    g = CoordsGenerator()
+    g.calculate_coords(mol, bond_length=Settings.bond_length)
+    draw_recursively(mol)
+    App.paper.save_state_to_undo_stack("Expand Group")
+
 
 
 
@@ -202,9 +233,8 @@ class MoveTool(SelectTool):
     def reset(self):
         self.drag_to_select = False
         self.objs_moved = False
-        # self.have_objs_to_move = False
         # self.objs_to_move = set()
-        # self.objs_to_redraw = set() # Bonds and Marks (eg lone-pair) need to redraw
+        # self.objs_to_redraw = set() # Bonds need to redraw
 
     def on_mouse_press(self, x, y):
         self.reset()
@@ -214,69 +244,71 @@ class MoveTool(SelectTool):
             self.drag_to_select = True
             return
         self._prev_pos = [x,y]
-        # Bonds, Marks (eg lone-pair) and delocalizations need to redraw
-        self.objs_to_redraw = set()
+
+        to_move = []
+        to_redraw = set()
+        self.redraw_on_finish = set()
         # if we drag a selected obj, all selected objs are moved
         if App.paper.focused_obj in App.paper.selected_objs:
             to_move = App.paper.selected_objs[:]
             [to_move.extend(obj.atoms) for obj in to_move if isinstance(obj,Bond)]
+            to_move = set(to_move)
+            # redraw bonds which are not selected but attached to selected atoms
+            bonds_to_redraw = flatten( [o.bonds for o in to_move if isinstance(o,Atom)])
+            bonds_to_redraw = set(bonds_to_redraw)-to_move
+            to_redraw |= bonds_to_redraw
+            # to rearrange marks if not all neighbors are moved along
+            self.redraw_on_finish = set(flatten([b.atoms for b in bonds_to_redraw]))
             # delocalizations need to redraw if related atoms are moved
             atoms = [o for o in to_move if isinstance(o,Atom)]
-            self.objs_to_redraw |= set(get_delocalizations_having_atoms(atoms))
+            to_redraw |= set(get_delocalizations_having_atoms(atoms))
         else:
             # when we try to move atom or bond, whole molecule is moved
             if isinstance(App.paper.focused_obj.parent, Molecule):# atom or bond
-                to_move = App.paper.focused_obj.parent.atoms[:]# moving atoms also moves bonds
-                to_move += list(App.paper.focused_obj.parent.delocalizations)
+                to_move = set(App.paper.focused_obj.parent.atoms)
+                to_move |= App.paper.focused_obj.parent.bonds
+                to_move |= set(App.paper.focused_obj.parent.delocalizations)
             else:
-                to_move = [App.paper.focused_obj]
+                to_move = set([App.paper.focused_obj])
 
+        self.objs_to_move = to_move
+        self.objs_to_redraw = to_redraw
 
-        self.objs_to_move = set(to_move)
+        # handle anchored arrows
+        self.anchor_dict = {}
+        for o in [o for o in App.paper.objects if isinstance(o,Arrow)]:
+            tail_pos = o.points[0]  if o.e_src else None
+            head_pos = o.points[-1] if o.e_dst else None
+            if tail_pos or head_pos:
+                self.anchor_dict[o] = [tail_pos, o.e_src in self.objs_to_move,
+                                       head_pos, o.e_dst in self.objs_to_move]
+                self.objs_to_redraw.add(o)
 
-        # Don't need this, unless objs other than Molecule have children
-        #self.objs_to_move = set(get_objs_with_all_children(to_move))
-
-        # get objects to redraw
-        for obj in list(self.objs_to_move):
-            if isinstance(obj, Atom):
-                # when atom is moved, marks are automatically moved along (as they have
-                # relative position). This prevents the marks from moving again.
-                self.objs_to_move -= set(obj.marks)
-                self.objs_to_redraw |= set(obj.marks)
-                self.objs_to_redraw |= set(obj.bonds)
-            # some marks need redraw, moving graphics items does not work.
-            # eg - lone pair may rotate with position change
-            elif isinstance(obj, Mark):
-                self.objs_to_redraw.add(obj)
-
-        anchored_arrows = set(o for o in App.paper.objects if isinstance(o,Arrow) and o.anchor)
-        self.arrows_to_move_tail =  set(o for o in anchored_arrows if o.anchor in self.objs_to_redraw)
-        self.arrows_to_move_body = set(o for o in anchored_arrows if o in self.objs_to_move)
-        self.objs_to_move -= self.arrows_to_move_body
-        self.objs_to_redraw |= self.arrows_to_move_tail
-        self.objs_to_redraw |= self.arrows_to_move_body
-
-        self.have_objs_to_move = bool(self.objs_to_move or self.arrows_to_move_tail
-                                or self.arrows_to_move_body)
 
     def on_mouse_move(self, x, y):
         if self.drag_to_select:
             SelectTool.on_mouse_move(self, x, y)
             return
-        if not (App.paper.dragging and self.have_objs_to_move):
+        if not (App.paper.dragging and self.objs_to_move):
             return
         dx, dy = x-self._prev_pos[0], y-self._prev_pos[1]
         for obj in self.objs_to_move:
             obj.move_by(dx, dy)
+        for obj in self.objs_to_move - self.objs_to_redraw:
             App.paper.moveItemsBy(obj.all_items, dx, dy)
 
-        for arr in self.arrows_to_move_tail:
-            arr.points[0] = (arr.points[0][0]+dx, arr.points[0][1]+dy)
-        for arr in self.arrows_to_move_body:
-            tail_pos = arr.points[0]
-            arr.move_by(dx, dy)
-            arr.points[0] = tail_pos
+        for o,vals in self.anchor_dict.items():
+            tail_pos, tail_moving, head_pos, head_moving = vals
+            if tail_pos:# tail anchored
+                if tail_moving:
+                    tail_pos = (tail_pos[0]+dx, tail_pos[1]+dy)
+                self.anchor_dict[o][0] = tail_pos
+                o.points[0] = tail_pos
+            if head_pos:# head anchored
+                if head_moving:
+                    head_pos = (head_pos[0]+dx, head_pos[1]+dy)
+                self.anchor_dict[o][2] = head_pos
+                o.points[-1] = head_pos
 
         [obj.draw() for obj in self.objs_to_redraw]
         self.objs_moved = True
@@ -293,6 +325,11 @@ class MoveTool(SelectTool):
                 self.clear_status()
             return
         if self.objs_moved:
+            # marks position on atoms need to be updated
+            [o.draw() for o in self.redraw_on_finish]
+            for arrow in [o for o in self.anchor_dict if o.e_src in self.redraw_on_finish]:
+                arrow.adjust_anchored_points()
+                arrow.draw()
             App.paper.save_state_to_undo_stack("Move Object(s)")
             self.show_status(self.tips["on_move"])
 
@@ -300,8 +337,10 @@ class MoveTool(SelectTool):
     def on_key_press(self, key, text):
         if key=="Delete":
             self.delete_selected()
-        elif key=="D":
-            if "Ctrl" in App.paper.modifier_keys:
+        if "Ctrl" in App.paper.modifier_keys:
+            if key=="A":
+                App.paper.selectAll()
+            elif key=="D":
                 self.duplicate_selected()
 
 
@@ -328,7 +367,7 @@ class MoveTool(SelectTool):
         if not objs:# if selection does not contain molecules
             return
         bboxes = [obj.bounding_box() for obj in objs]
-        bbox = common.bbox_of_bboxes(bboxes)
+        bbox = bbox_of_bboxes(bboxes)
         x, y = App.paper.find_place_for_obj_size(bbox[2]-bbox[0], bbox[3]-bbox[1])
         move_objs(objs, x-bbox[0], y-bbox[1])
         draw_objs_recursively(objs)
@@ -362,27 +401,24 @@ class MoveTool(SelectTool):
 def delete_objects(objects):
     objects = set(objects)
     # separate objects that need to be handled specially (eg- atoms, bonds)
-    marks = set(o for o in objects if isinstance(o,Mark))
-    objects -= marks
     bonds = set(o for o in objects if isinstance(o,Bond))
     objects -= bonds
     atoms = set(o for o in objects if isinstance(o,Atom))
     objects -= atoms
     for atom in atoms:
         bonds |= set(atom.bonds)
-        marks |= set(atom.marks)
 
     # need to redraw atoms whose bonds are deleted, and occupied valency changed
     to_redraw = set()
     for bond in bonds:
         to_redraw |= set(bond.atoms)
     to_redraw -= atoms
+    # in "Show Terminal Carbon" mode, atom symbol may become visible and bonds need to be redrawn
+    bonds_to_redraw = set()
+    for atom in to_redraw:
+        bonds_to_redraw |= set(atom.bonds)
+    to_redraw |= bonds_to_redraw - bonds
 
-    # delete all other objects
-    while marks:
-        mark = marks.pop()
-        mark.atom.marks.remove(mark)
-        mark.delete_from_paper()
     while objects:
         obj = objects.pop()
         obj.delete_from_paper()
@@ -447,10 +483,6 @@ def duplicate_objects(objects):
         new_atom = atom.copy()
         obj_map[atom.molecule.id].add_atom(new_atom)
         obj_map[atom.id] = new_atom
-        for mark in atom.marks:
-            new_mark = mark.copy()
-            new_mark.atom = new_atom
-            new_atom.marks.append(new_mark)
     # copy bonds
     for bond in bonds:
         new_bond = bond.copy()
@@ -686,11 +718,12 @@ class ScaleTool(SelectTool):
         self.objs_to_scale = get_objs_with_all_children(objs)
 
     def create_bbox(self):
-        bboxes = [obj.bounding_box() for obj in self.objs_to_scale]
+        items = flatten([obj.all_items for obj in self.objs_to_scale])
+        bboxes = [App.paper.itemBoundingBox(item) for item in items]
         if not bboxes:
             self.bbox = None
             return
-        self.bbox = common.bbox_of_bboxes( bboxes)
+        self.bbox = bbox_of_bboxes( bboxes)
         if self.bbox:
             topleft = App.paper.addRect(self.bbox[:2] + [self.bbox[0]+8, self.bbox[1]+8], fill=Color.blue)
             btmright = App.paper.addRect([self.bbox[2]-8, self.bbox[3]-8] + self.bbox[2:], fill=Color.blue)
@@ -854,6 +887,64 @@ class AlignTool(Tool):
 
 class StructureTool(Tool):
 
+    def __init__(self):
+        Tool.__init__(self)
+        self.mode = None
+        self.subtool = None
+        self.init_subtool(toolsettings['mode'])
+
+    def init_subtool(self, mode):
+        if mode=="group":
+            mode="atom"
+        if self.mode==mode:
+            return
+        if self.subtool:
+            self.subtool.clear()
+        if mode=="chain":
+            self.subtool = ChainTool()
+        elif mode=="ring":
+            self.subtool = RingTool()
+        elif mode == "template":
+            self.subtool = TemplateTool()
+        else:
+            self.subtool = AtomTool()
+        self.subtool.parent = self
+        self.mode = mode
+
+    def on_mouse_press(self, x,y):
+        self.subtool.on_mouse_press(x,y)
+
+    def on_mouse_move(self, x,y):
+        self.subtool.on_mouse_move(x,y)
+
+    def on_mouse_release(self, x,y):
+        self.subtool.on_mouse_release(x,y)
+
+    def on_mouse_double_click(self, x, y):
+        self.subtool.on_mouse_double_click(x,y)
+
+    def on_key_press(self, key, text):
+        # if select all, then switch to movetool
+        if "Ctrl" in App.paper.modifier_keys and key=="A":
+            App.window.selectToolByName("MoveTool")
+            App.paper.selectAll()
+            return
+        self.subtool.on_key_press(key, text)
+
+    def clear(self):
+        self.subtool.clear()
+
+    def on_property_change(self, key, value):
+        if key=='mode':# atom, group and template
+            App.window.changeStructureToolMode(value)
+            self.init_subtool(value)
+        if key=='bond_type':
+            if toolsettings['mode']!='atom':
+                App.window.selectStructure("C")
+
+
+class AtomTool(Tool):
+
     tips = {
         "over_empty_place": "Click → Place new atom ; Press-and-Drag → Draw new Bond",
         "over_atom": "Click/Drag → New bond ; Shit+Click → Show/Hide Carbon ; Ctrl+Click → edit atom text",
@@ -862,7 +953,6 @@ class StructureTool(Tool):
         "over_bond": "Click on Bond to change bond type",
         "moving_bond": "Press Shift → free bond length",
         "editing_text": "Type symbol or formula, then Press Enter → accept",
-        "template_mode": "Click over Empty-Area/Atom/Bond to place template",
     }
 
     def __init__(self):
@@ -871,15 +961,10 @@ class StructureTool(Tool):
         self.preview_item = None
         self.atom_with_preview_bond = None
         self.reset()
-        self.update_tip = True
         self.show_tip("over_empty_place")
-        if toolsettings['mode']=='template':
-            self.show_tip("template_mode")
-            self.update_tip = False
 
     def show_tip(self, tip_name):
-        if self.update_tip:
-            self.show_status(self.tips[tip_name])
+        self.show_status(self.tips[tip_name])
 
     def reset(self):
         self.atom1 = None
@@ -890,8 +975,6 @@ class StructureTool(Tool):
         #print("press   : %i, %i" % (x,y))
         self.mouse_press_pos = (x,y)
         if self.editing_atom:
-            return
-        if toolsettings['mode']=='template':
             return
 
         if not App.paper.focused_obj:
@@ -948,6 +1031,8 @@ class StructureTool(Tool):
             self.bond.connect_atoms(self.atom1, self.atom2)
             if self.atom1.redraw_needed():# because, hydrogens may be changed
                 self.atom1.draw()
+                [bond.draw() for bond in self.atom1.bonds]# atoms visibility change
+
             self.atom2.draw()
             self.bond.draw()
             App.paper.do_not_focus.add(self.atom2)
@@ -998,15 +1083,13 @@ class StructureTool(Tool):
         refresh_attached_double_bonds(self.atom1)
         if touched_atom:
             refresh_attached_double_bonds(self.atom2)
+            [bond.draw() for bond in self.atom2.bonds]
         self.reset()
         App.paper.save_state_to_undo_stack()
 
 
     def on_mouse_click(self, x, y):
         #print("click   : %i, %i" % (x,y))
-        if toolsettings['mode']=='template':
-            return self.on_mouse_clickTemplate(x,y)
-
         focused_obj = App.paper.focused_obj
         if not focused_obj:
             if self.atom1:# atom1 is None when previous mouse press finished editing atom text
@@ -1058,10 +1141,12 @@ class StructureTool(Tool):
                     self.clear_preview()
                     atom1.draw()# because, hydrogens may be changed
                     atom2.draw()
-                    bond.draw()
+                    #bond.draw()
+                    [bond.draw() for bond in atom1.bonds]# carbon visibility may change
                     refresh_attached_double_bonds(atom1)
                     if touched_atom:
                         refresh_attached_double_bonds(atom2)
+                        [bond.draw() for bond in atom2.bonds]
 
                 # for next bond to be added on same atom, without mouse movement
                 self.show_preview(atom1)
@@ -1095,61 +1180,6 @@ class StructureTool(Tool):
     def on_mouse_double_click(self, x, y):
         """ treat double click event as single click """
         self.on_mouse_click(x,y)
-
-
-    def on_mouse_clickTemplate(self, x,y):
-        focused = App.paper.focused_obj
-        template = App.template_manager.templates[toolsettings['structure']]
-        if isinstance(focused, Atom) and template.template_atom:
-            # (x1,y1) is the point where template-atom is placed, (x2,y2) is the point
-            # for aligning and scaling the template molecule
-            if focused.free_valency >= template.template_atom.occupied_valency:# merge atom
-                x1, y1 = focused.x, focused.y
-                if len(focused.neighbors)==1:# terminal atom
-                    x2, y2 = focused.neighbors[0].pos
-                else:
-                    x2, y2 = focused.molecule.find_place(focused, Settings.bond_length)
-                    x2, y2 = (2*x1 - x2), (2*y1 - y2)# to opposite side of x1, y1
-                t = App.template_manager.get_transformed_template(template, [x1,y1,x2,y2], "Atom")
-                focused.eat_atom(t.template_atom)
-            else: # connect template-atom and focused atom with bond
-                x1, y1 = focused.molecule.find_place(focused, Settings.bond_length)
-                x2, y2 = focused.pos
-                t = App.template_manager.get_transformed_template(template, [x1,y1,x2,y2], "Atom")
-                t_atom = t.template_atom
-                focused.molecule.eat_molecule(t)
-                bond = focused.molecule.new_bond()
-                bond.connect_atoms(focused, t_atom)
-            focused.molecule.handle_overlap()
-            draw_recursively(focused.molecule)
-        elif isinstance(focused, Bond) and template.template_bond:
-            x1, y1 = focused.atom1.pos
-            x2, y2 = focused.atom2.pos
-            # template is attached to the left side of the passed coordinates,
-            atms = focused.atom1.neighbors + focused.atom2.neighbors
-            atms = set(atms) - set(focused.atoms)
-            coords = [a.pos for a in atms]
-            # so if most atoms are at the left side, switch start and end point
-            if reduce( operator.add, [geo.line_get_side_of_point( (x1,y1,x2,y2), xy) for xy in coords], 0) > 0:
-                x1, y1, x2, y2 = x2, y2, x1, y1
-            t = App.template_manager.get_transformed_template(template, (x1,y1,x2,y2), "Bond")
-            focused.molecule.eat_molecule(t)
-            focused.molecule.handle_overlap()
-            draw_recursively(focused.molecule)
-        else:
-            # when we try to click over atom or bond but mouse got accidentally
-            # unfocued. we should prevent placing template too close.
-            d = Settings.bond_length/2
-            objs = App.paper.objectsInRect([x-d, y-d, x+d, y+d])
-            objs = list(filter(lambda o : isinstance(o, (Atom,Bond)), objs))
-            if objs:
-                return
-            t = App.template_manager.get_transformed_template(template, [x,y], "center")
-            App.paper.addObject(t)
-            draw_recursively(t)
-            t.template_atom = None
-            t.template_bond = None
-        App.paper.save_state_to_undo_stack("add template : %s"% template.name)
 
 
     def on_key_press(self, key, text):
@@ -1207,18 +1237,6 @@ class StructureTool(Tool):
             self.atom_with_preview_bond = None
 
 
-    def on_property_change(self, key, value):
-        if key=='mode':
-            self.clear()# to exit text edit
-            if value=='template':
-                self.show_tip("template_mode")
-                self.update_tip = False
-            else:
-                self.update_tip = True
-        if key=='bond_type' and toolsettings['mode']!='atom':
-            App.window.selectStructure("C")
-
-
 
 def refresh_attached_double_bonds(obj):
     """ refresh double bonds side attached to obj """
@@ -1227,6 +1245,74 @@ def refresh_attached_double_bonds(obj):
     elif isinstance(obj, Bond):
         bonds = set(obj.atom1.neighbor_edges + obj.atom2.neighbor_edges)
     [b.redraw() for b in bonds if b.type in ("double","delocalized","bold2")]
+
+
+
+class TemplateTool(Tool):
+    tips = {
+        "on_init": "Click over Empty-Area/Atom/Bond to place template",
+    }
+    def __init__(self):
+        Tool.__init__(self)
+        self.show_status(self.tips["on_init"])
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(x,y)
+
+    def on_mouse_click(self, x,y):
+        focused = App.paper.focused_obj
+        template = App.template_manager.templates[toolsettings['structure']]
+        if isinstance(focused, Atom) and template.template_atom:
+            # (x1,y1) is the point where template-atom is placed, (x2,y2) is the point
+            # for aligning and scaling the template molecule
+            if focused.free_valency >= template.template_atom.occupied_valency:# merge atom
+                x1, y1 = focused.x, focused.y
+                if len(focused.neighbors)==1:# terminal atom
+                    x2, y2 = focused.neighbors[0].pos
+                else:
+                    x2, y2 = focused.molecule.find_place(focused, Settings.bond_length)
+                    x2, y2 = (2*x1 - x2), (2*y1 - y2)# to opposite side of x1, y1
+                t = App.template_manager.get_transformed_template(template, [x1,y1,x2,y2], "Atom")
+                focused.eat_atom(t.template_atom)
+            else: # connect template-atom and focused atom with bond
+                x1, y1 = focused.molecule.find_place(focused, Settings.bond_length)
+                x2, y2 = focused.pos
+                t = App.template_manager.get_transformed_template(template, [x1,y1,x2,y2], "Atom")
+                t_atom = t.template_atom
+                focused.molecule.eat_molecule(t)
+                bond = focused.molecule.new_bond()
+                bond.connect_atoms(focused, t_atom)
+            focused.molecule.handle_overlap()
+            draw_recursively(focused.molecule)
+        elif isinstance(focused, Bond) and template.template_bond:
+            x1, y1 = focused.atom1.pos
+            x2, y2 = focused.atom2.pos
+            # template is attached to the left side of the passed coordinates,
+            atms = focused.atom1.neighbors + focused.atom2.neighbors
+            atms = set(atms) - set(focused.atoms)
+            coords = [a.pos for a in atms]
+            # so if most atoms are at the left side, switch start and end point
+            if reduce( operator.add, [geo.line_get_side_of_point( (x1,y1,x2,y2), xy) for xy in coords], 0) > 0:
+                x1, y1, x2, y2 = x2, y2, x1, y1
+            t = App.template_manager.get_transformed_template(template, (x1,y1,x2,y2), "Bond")
+            focused.molecule.eat_molecule(t)
+            focused.molecule.handle_overlap()
+            draw_recursively(focused.molecule)
+        else:
+            # when we try to click over atom or bond but mouse got accidentally
+            # unfocued. we should prevent placing template too close.
+            d = Settings.bond_length/2
+            objs = App.paper.objectsInRect([x-d, y-d, x+d, y+d])
+            objs = list(filter(lambda o : isinstance(o, (Atom,Bond)), objs))
+            if objs:
+                return
+            t = App.template_manager.get_transformed_template(template, [x,y], "center")
+            App.paper.addObject(t)
+            draw_recursively(t)
+            t.template_atom = None
+            t.template_bond = None
+        App.paper.save_state_to_undo_stack("add template : %s"% template.name)
 
 # ------------------------ END STRUCTURE TOOL -------------------------
 
@@ -1434,39 +1520,59 @@ class ArrowPlusTool(Tool):
 
     def __init__(self):
         Tool.__init__(self)
-        self.head_focused_arrow = None
-        self.focus_item = None
-        self.reset()
         self.show_status(self.tips["on_init"])
+        self.init_subtool(toolsettings["arrow_type"])
 
-    @property
-    def mode(self):
-        type_ = toolsettings["arrow_type"]
-        return {"electron_flow": "spline",  "fishhook": "spline", "circular":"circular"}.get(type_, "normal")
+    def init_subtool(self, type_):
+        if type_ in ("electron_flow", "fishhook"):
+            self.subtool = SplineArrowTool()
+        elif type_ == "circular":
+            self.subtool = CircularArrowTool()
+        else:
+            self.subtool = NormalArrowTool()
+        self.subtool.parent = self
+
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+        self.subtool.on_mouse_press(x,y)
+
+    def on_mouse_move(self, x,y):
+        self.subtool.on_mouse_move(x,y)
+
+    def on_mouse_release(self, x,y):
+        self.subtool.on_mouse_release(x,y)
+
+    def on_mouse_click(self, x, y):
+        """ draw plus """
+        plus = Plus()
+        plus.set_pos(*self.mouse_press_pos)
+        App.paper.addObject(plus)
+        plus.draw()
+        App.paper.save_state_to_undo_stack("Add Plus")
+
+    def clear(self):
+        self.subtool.clear()
+
+    def on_property_change(self, key, value):
+        if key=="arrow_type":
+            self.subtool.clear()
+            self.init_subtool(value)
+
+
+class NormalArrowTool:
+    def __init__(self):
+        self.focus_item = None
+        self.head_focused_arrow = None
+        self.reset()
 
     def reset(self):
         self.arrow = None # working arrow
         self.mouse_press_pos = None
-        # for curved arrow
-        self.start_point = None
-        self.end_point = None
-
-    def clear(self):
-        if self.focus_item:
-            App.paper.removeItem(self.focus_item)
-        self.head_focused_arrow = None
-        self.start_point = None
 
     def on_mouse_press(self, x,y):
         self.mouse_press_pos = (x,y)
 
-    def on_mouse_move(self, x, y):
-        getattr(self, "on_mouse_move_"+self.mode)(x,y)
-
-    def on_mouse_release(self, x, y):
-        getattr(self, "on_mouse_release_"+self.mode)(x,y)
-
-    def on_mouse_move_normal(self, x,y):
+    def on_mouse_move(self, x,y):
         # on mouse hover focus the arrow head
         if not App.paper.dragging:
             # check here if we have entered/left the head
@@ -1510,9 +1616,9 @@ class ArrowPlusTool(Tool):
         self.arrow.points[-1] = pos
         self.arrow.draw()
 
-    def on_mouse_release_normal(self, x, y):
+    def on_mouse_release(self, x, y):
         if not App.paper.dragging:
-            self.on_mouse_click(x,y)
+            self.parent.on_mouse_click(x,y)
             return
         # if two lines are linear, merge them to single line
         if len(self.arrow.points)>2:
@@ -1524,47 +1630,26 @@ class ArrowPlusTool(Tool):
         self.reset()
         App.paper.save_state_to_undo_stack("Add Arrow")
 
+    def clear(self):
+        if self.focus_item:
+            App.paper.removeItem(self.focus_item)
 
-    def on_mouse_move_spline(self, x,y):
-        # dragging or not dragging, both cases
-        if self.start_point and self.end_point:
-            # draw curved arrow
-            knots = [self.start_point, (x,y), self.end_point]
-            anchor = self.arrow.anchor
-            if anchor and isinstance(anchor, Mark):
-                knots[0] = geo.rect_get_intersection_of_line(anchor.bounding_box(),
-                            (x,y) + (anchor.x, anchor.y))
-            quad = geo.quad_bezier_through_points(knots)
-            self.arrow.set_points(geo.quad_to_cubic_bezier(quad))
-            self.arrow.draw()
-            return
 
-        if App.paper.dragging:
-            if not self.start_point:# drag just started after mouse press
-                self.start_point = self.mouse_press_pos
-                self.arrow = Arrow(toolsettings["arrow_type"])
-                App.paper.addObject(self.arrow)
-                focused = App.paper.focused_obj
-                if focused and focused.class_name in ("Electron", "Charge", "Bond"):
-                    self.arrow.anchor = focused
-            # draw straight arrow
-            # here we represent a straight line with cubic bezier, by dividing
-            # straight line into three parts and use the points as control points
-            p1 = (x+2*self.start_point[0])/3, (y+2*self.start_point[1])/3
-            p2 = (2*x+self.start_point[0])/3, (2*y+self.start_point[1])/3
-            self.arrow.set_points([self.start_point, p1, p2, (x,y)])
-            self.arrow.draw()
+class CircularArrowTool:
+    def __init__(self):
+        self.reset()
 
-    def on_mouse_release_spline(self, x,y):
-        if self.start_point and self.end_point:
-            App.paper.save_state_to_undo_stack("Add Arrow")
-            self.reset()
-        elif self.start_point:# first time release after dragging
-            self.end_point = (x,y)
-        elif not App.paper.dragging:
-            self.on_mouse_click(x,y)
+    def reset(self):
+        self.arrow = None # working arrow
+        self.mouse_press_pos = None
+        # for curved arrow
+        self.start_point = None
+        self.end_point = None
 
-    def on_mouse_move_circular(self, x,y):
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+
+    def on_mouse_move(self, x,y):
         # dragging or not dragging, both cases
         if self.start_point and self.end_point:
             # draw curved arrow
@@ -1581,168 +1666,236 @@ class ArrowPlusTool(Tool):
             self.arrow.set_points([self.start_point, (x,y)])
             self.arrow.draw()
 
-    def on_mouse_release_circular(self, x,y):
-        # does same thing as spline
-        self.on_mouse_release_spline(x,y)
+    def on_mouse_release(self, x,y):
+        if self.start_point and self.end_point:
+            App.paper.save_state_to_undo_stack("Add Arrow")
+            self.reset()
+        elif self.start_point:# first time release after dragging
+            self.end_point = (x,y)
+        elif not App.paper.dragging:
+            self.parent.on_mouse_click(x,y)
+
+    def clear(self):
+        pass
 
 
-    def on_mouse_click(self, x, y):
-        """ draw plus """
-        plus = Plus()
-        plus.set_pos(*self.mouse_press_pos)
-        App.paper.addObject(plus)
-        plus.draw()
-        App.paper.save_state_to_undo_stack("Add Plus")
 
+class SplineArrowTool:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.arrow = None # working arrow
+        self.mouse_press_pos = None
+        # for curved arrow
+        self.start_point = None
+        self.end_point = None
+
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+        self.focused_on_press = App.paper.focused_obj
+
+    def on_mouse_move(self, x,y):
+        # dragging or not dragging, both cases
+        if self.start_point and self.end_point:
+            # draw curved arrow
+            knots = [self.start_point, (x,y), self.end_point]
+            quad = geo.quad_bezier_through_points(knots)
+            self.arrow.set_points(geo.quad_to_cubic_bezier(quad))
+            self.arrow.adjust_anchored_points()
+            self.arrow.draw()
+            return
+
+        if App.paper.dragging:
+            if not self.start_point:# drag just started after mouse press
+                self.start_point = self.mouse_press_pos
+                self.arrow = Arrow(toolsettings["arrow_type"])
+                App.paper.addObject(self.arrow)
+                if focused := self.focused_on_press:
+                    if (focused.class_name=="Atom" and focused.electron_src_marks_pos) \
+                        or focused.class_name == "Bond":
+                        self.arrow.e_src = focused
+            # draw straight arrow
+            # here we represent a straight line with cubic bezier, by dividing
+            # straight line into three parts and use the points as control points
+            p1 = (x+2*self.start_point[0])/3, (y+2*self.start_point[1])/3
+            p2 = (2*x+self.start_point[0])/3, (2*y+self.start_point[1])/3
+            self.arrow.set_points([self.start_point, p1, p2, (x,y)])
+            self.arrow.draw()
+
+    def on_mouse_release(self, x,y):
+        if self.start_point and self.end_point:
+            App.paper.save_state_to_undo_stack("Add Arrow")
+            self.reset()
+        elif self.start_point:# first time release after dragging
+            self.end_point = (x,y)
+            # set electron destination
+            if (focused:=App.paper.focused_obj) and focused.class_name in ("Atom","Bond"):
+                self.arrow.e_dst = focused
+        elif not App.paper.dragging:
+            self.parent.on_mouse_click(x,y)
+
+    def clear(self):
+        pass
 
 
 # --------------------------- END ARROW-PLUS TOOL ---------------------------
 
 
-
-
-class MarkTool(Tool):
+class PlusChargeTool(Tool):
     tips = {
-        "on_init": "Click an Atom to place the mark",
-        "on_new_charge": "Click again to increase charge; Select opposite charge and click atom to decrease charge",
-        "delete_mode": "Click the Mark to delete, or Click Atom to delete last added Mark",
+        "on_init": "Left click to increase +ve charge; Right click to remove charge",
     }
 
     def __init__(self):
         Tool.__init__(self)
-        self.reset()
         self.show_status(self.tips["on_init"])
-
-    def reset(self):
-        self.prev_pos = None
-        self.mark = None
-
-    def on_mouse_press(self, x,y):
-        if isinstance(App.paper.focused_obj, Mark):
-            self.mark = App.paper.focused_obj
-            self.prev_pos = (x,y)
-
-    def on_mouse_move(self, x,y):
-        if not App.paper.dragging or not self.mark:
-            return
-        dx, dy = x-self.prev_pos[0], y-self.prev_pos[1]
-        self.mark.move_by(dx, dy)
-        self.mark.draw()
-        self.prev_pos = (x,y)
 
     def on_mouse_release(self, x, y):
         if not App.paper.dragging:
             self.on_mouse_click(x,y)
-        elif self.mark:# the mark has been moved
-            App.paper.save_state_to_undo_stack("Move Mark")
-        self.reset()
 
+    def increase_charge(self, increase):
+        focused = App.paper.focused_obj
+        if not isinstance(focused, Atom):
+            return
+        charge = focused.charge+1 if increase else 0
+        circle = toolsettings["type"] == "circled"
+        # if type changed between normal and circled, do not change charge value
+        if not (increase and focused.charge and circle!=focused.circle_charge):
+            focused.set_charge(charge)
+        elif circle==focused.circle_charge:# nothing is changed
+            return
+        focused.circle_charge = circle
+        focused.draw()
+        App.paper.save_state_to_undo_stack("Set Charge")
 
     def on_mouse_click(self, x, y):
+        self.increase_charge(True)
+
+    def on_right_click(self, x, y):
+        self.increase_charge(False)
+
+    def on_mouse_double_click(self, x,y):
+        self.on_mouse_click(x,y)
+
+
+class MinusChargeTool(Tool):
+    tips = {
+        "on_init": "Left click to increase -ve charge; Right click to remove charge",
+    }
+
+    def __init__(self):
+        Tool.__init__(self)
+        self.show_status(self.tips["on_init"])
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(x,y)
+
+    def decrease_charge(self, decrease):
         focused = App.paper.focused_obj
-        if not focused:
+        if not isinstance(focused, Atom):
             return
-        mark_type = toolsettings["mark_type"]
+        charge = focused.charge-1 if decrease else 0
+        circle = toolsettings["type"] == "circled"
+        # if type changed between normal and circled, do not change charge value
+        if not (decrease and focused.charge and circle!=focused.circle_charge):
+            focused.set_charge(charge)
+        elif circle==focused.circle_charge:# nothing is changed
+            return
+        focused.circle_charge = circle
+        focused.draw()
+        App.paper.save_state_to_undo_stack("Set Charge")
 
-        if mark_type=="DeleteMark":
-            if isinstance(focused, Mark):
-                delete_mark(focused)
-                App.paper.save_state_to_undo_stack("Delete Mark")
-            elif isinstance(focused, Atom) and len(focused.marks):
-                # remove last mark from atom
-                delete_mark(focused.marks[-1])
-                App.paper.save_state_to_undo_stack("Delete Mark")
+    def on_mouse_click(self, x, y):
+        self.decrease_charge(True)
 
-        # clicked on atom, create new mark
-        elif isinstance(focused, Atom):
-            if mark_type=="isotope":
-                template = focused.isotope_template
-                menu = App.paper.createMenu("Isotope")
-                create_object_property_submenu(focused, menu, template)
-                App.paper.showMenu(menu, (x,y))
+    def on_right_click(self, x, y):
+        self.decrease_charge(False)
 
-            elif mark_type.startswith("charge"):
-                charge = atom_get_charge_obj(focused)
-                if charge:
-                    self.on_charge_click(charge)# changes charge val
-                else:
-                    mark = create_new_mark_in_atom(focused, mark_type)
-                    mark.draw()
-                self.show_status(self.tips["on_new_charge"])
-                App.paper.save_state_to_undo_stack("Add Mark")
-            else:
-                mark = create_new_mark_in_atom(focused, mark_type)
-                mark.draw()
-                App.paper.save_state_to_undo_stack("Add Mark")
-
-        elif focused.class_name=="Charge":
-            if mark_type.startswith("charge"):
-                self.on_charge_click(focused)
+    def on_mouse_double_click(self, x,y):
+        self.on_mouse_click(x,y)
 
 
-    def on_charge_click(self, charge):
-        charge_type, val = charge_info[ toolsettings["mark_type"] ]
-        if charge_type!=charge.type:
-            charge.set_type(charge_type)
+class LonepairTool(Tool):
+    tips = {
+        "on_init": "Left Click to add Lone-pair; Right click to remove Lone-pair",
+    }
+
+    def __init__(self):
+        Tool.__init__(self)
+        self.show_status(self.tips["on_init"])
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(x,y)
+
+    def increase_lonepair_count(self, change):
+        focused = App.paper.focused_obj
+        if not isinstance(focused, Atom):
+            return
+        # if type changed between dotted and dashed, do not change lonepair number
+        if focused.lonepairs and focused.lonepair_type!=toolsettings["type"]:
+            focused.lonepair_type = toolsettings["type"]
+            focused.draw()
+            return
+        count = max(focused.lonepairs+change, 0)
+        if count != focused.lonepairs:
+            focused.set_lonepairs(count)
+            focused.lonepair_type = toolsettings["type"]
+            focused.draw()
+            App.paper.save_state_to_undo_stack("Set Lonepairs")
+
+    def on_mouse_click(self, x, y):
+        self.increase_lonepair_count(1)
+
+    def on_right_click(self, x, y):
+        self.increase_lonepair_count(-1)
+
+    def on_mouse_double_click(self, x,y):
+        self.on_mouse_click(x,y)
+
+
+
+class RadicalTool(Tool):
+    tips = {
+        "on_init": "Left click to add or change radical; Right click to remove radical",
+    }
+
+    def __init__(self):
+        Tool.__init__(self)
+        self.show_status(self.tips["on_init"])
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(x,y)
+
+    def add_radical(self, add):
+        focused = App.paper.focused_obj
+        if not isinstance(focused, Atom):
+            return
+        if add:
+            next_vals = {0:2, 2:3, 3:1, 1:2}
+            radical = next_vals[focused.radical]
         else:
-            # same type charge, increment val
-            val = charge.value + val or -charge.value
-        charge.setValue(val)
-        charge.draw()
+            radical = 0
+        if radical != focused.radical:
+            focused.set_radical(radical)
+            focused.draw()
+            App.paper.save_state_to_undo_stack("Set Radical")
 
-    def on_property_change(self, key, val):
-        if key=="mark_type":
-            if val=="DeleteMark":
-                self.show_status(self.tips["delete_mode"])
-            else:
-                self.show_status(self.tips["on_init"])
+    def on_mouse_click(self, x, y):
+        self.add_radical(True)
 
-    def clear(self):
-        # we dont want to remain in delete mode, when we come back from another tool
-        if toolsettings["mark_type"]=="DeleteMark":
-            toolsettings["mark_type"] = "charge_plus"
+    def on_right_click(self, x, y):
+        self.add_radical(False)
+
+    def on_mouse_double_click(self, x,y):
+        self.on_mouse_click(x,y)
 
 
-
-charge_info = {
-    "charge_plus": ("normal", 1),
-    "charge_minus": ("normal", -1),
-    "charge_circledplus": ("circled", 1),
-    "charge_circledminus": ("circled", -1),
-    "charge_deltaplus": ("partial", 1),
-    "charge_deltaminus": ("partial", -1),
-}
-
-def create_new_mark_in_atom(atom, mark_type):
-    """ @mark_type types are specified in settings template """
-    # create mark from type
-    if mark_type.startswith("charge"):
-        typ, val = charge_info[mark_type]
-        mark = Charge(typ)
-        mark.setValue(val)
-
-    elif mark_type=="electron_single":
-        mark = Electron("1")
-    elif mark_type=="electron_pair":
-        mark = Electron("2")
-    else:
-        raise ValueError("Can not create mark from invalid mark type")
-
-    atom.add_mark(mark)
-    return mark
-
-
-def delete_mark(mark):
-    mark.atom.marks.remove(mark)
-    mark.delete_from_paper()
-
-def atom_get_charge_obj(atom):
-    for mark in atom.marks:
-        if mark.class_name=="Charge":
-            return mark
-
-
-# ---------------------------- END MARK TOOL ---------------------------
+# ---------------------------- END MARK TOOLS ---------------------------
 
 
 class TextTool(Tool):
@@ -1857,7 +2010,6 @@ class ColorTool(SelectTool):
         SelectTool.on_mouse_move(self, x,y)
 
 def set_objects_color(objs, color):
-    objs = [obj for obj in objs if not isinstance(obj, Mark)]
     for obj in objs:
         obj.color = color
     draw_objs_recursively(objs)
@@ -1921,6 +2073,24 @@ grouptools_template = [
     "OAc", "SO3H",
     "OTs", "OBs",
 ]
+# alphabetically sorted
+group_smiles_dict = {
+    "CHO": "C=O",
+    "CN": "C#N",
+    "COBr": "C(=O)Br",
+    "COCH3": "C(=O)C",
+    "COCl": "C(=O)Cl",
+    "CONH2": "C(=O)N",
+    "COOH": "C(O=)O",
+    "NO2": "N(=O)O",
+    "OAc": "OC(=O)C",
+    "OBs": "OS(=O)(=O)C1=CC=C(Br)C=C1",
+    "OCH3": "OC",
+    "OEt": "OCC",
+    "OTs": "OS(=O)(=O)C1=CC=C(C)C=C1",
+    "Ph" : "C1=CC=CC=C1",
+    "SO3H": "S(=O)(=O)O",
+}
 
 
 # required only once when main tool bar is created
@@ -1931,10 +2101,11 @@ tools_template = {
     "ScaleTool" : ("Resize Objects",  "scale"),
     "AlignTool" : ("Align or Transform Molecule",  "align"),
     "StructureTool" : ("Draw Molecular Structure", "bond"),
-    "ChainTool" : ("Draw Chain of varying size", "variable-chain"),
-    "RingTool" : ("Draw Ring of varying size", "variable-ring"),
     "ArrowPlusTool" : ("Plus and Arrow Tool", "plus-arrow"),
-    "MarkTool" : ("Add/Remove Atom Marks", "charge-circledplus"),
+    "PlusChargeTool" : ("Increase +ve Charge", "charge-circledplus"),
+    "MinusChargeTool" : ("Increase -ve Charge", "charge-circledminus"),
+    "LonepairTool" : ("Add Lonepair", "lonepair"),
+    "RadicalTool" : ("Add Radical", "radical"),
     "BracketTool" : ("Bracket Tool", "bracket-square"),
     "TextTool" : ("Write Text", "text"),
     "ColorTool" : ("Color Tool", "color"),
@@ -1942,8 +2113,8 @@ tools_template = {
 
 # ordered tools that appears on toolbar
 toolbar_tools = ["MoveTool", "ScaleTool", "RotateTool", "AlignTool", "StructureTool",
-    "ChainTool", "RingTool", "MarkTool", "ArrowPlusTool", "BracketTool", "TextTool",
-     "ColorTool"
+    "PlusChargeTool", "MinusChargeTool", "LonepairTool",
+    "RadicalTool", "ArrowPlusTool", "BracketTool", "TextTool", "ColorTool"
 ]
 
 # in each settings mode, items will be shown in settings bar as same order as here
@@ -1975,10 +2146,10 @@ settings_template = {
             ('2_or_a', "Double or Aromatic", "bond-DA"),
             ('any', "Any Bond", "bond-any"),
         ]],
-    ],
-    "ChainTool" : [
-    ],
-    "RingTool" : [
+        ["ButtonGroup", 'mode', [
+            ('chain', "Draw Chain of varying size", "variable-chain"),
+            ('ring', "Draw Ring of varying size", "variable-ring"),
+        ]],
     ],
     "MoveTool" : [
         ["ButtonGroup", 'selection_mode',
@@ -2009,6 +2180,26 @@ settings_template = {
             ('freerotation', "180° freerotation", "transform-freerotation"),
         ]]
     ],
+    "PlusChargeTool" : [
+        ["ButtonGroup", 'type',
+            [('normal', "Normal", "charge-plus"),
+            ('circled', "Circled", "charge-circledplus"),
+        ]]
+    ],
+    "MinusChargeTool" : [
+        ["ButtonGroup", 'type',
+            [('normal', "Normal", "charge-minus"),
+            ('circled', "Circled", "charge-circledminus"),
+        ]]
+    ],
+    "LonepairTool" : [
+        ["ButtonGroup", 'type',
+            [('dots', "Dotted Lonepair", "lonepair"),
+            ('dash', "Dashed Lonepair", "charge-minus"),
+        ]]
+    ],
+    "RadicalTool" : [
+    ],
     "ArrowPlusTool" : [
         ["ButtonGroup", 'angle',
             [('15', "15 degree", "angle-15"),
@@ -2031,20 +2222,6 @@ settings_template = {
             ('electron_flow', "Electron Pair Shift", "arrow-electron-shift"),
             ('fishhook', "Fishhook - Single electron shift", "arrow-fishhook"),
         ]],
-    ],
-    "MarkTool" : [
-        ["ButtonGroup", "mark_type", [
-            ('charge_plus', "Positive Charge", "charge-plus"),
-            ('charge_minus', "Negative Charge", "charge-minus"),
-            ('charge_circledplus', "Positive Charge", "charge-circledplus"),
-            ('charge_circledminus', "Negative Charge", "charge-circledminus"),
-            ('charge_deltaplus', "Positive Charge", "charge-deltaplus"),
-            ('charge_deltaminus', "Negative Charge", "charge-deltaminus"),
-            ('electron_pair', "Lone Pair", "electron-pair"),
-            ('electron_single', "Single Electron/Radical", "electron-single"),
-            ('isotope', "Isotope Number", "isotope"),
-            ('DeleteMark', "Delete Mark", "delete"),
-        ]]
     ],
     "BracketTool" : [
         ["ButtonGroup", 'bracket_type',
@@ -2087,10 +2264,12 @@ class ToolSettings:
             "MoveTool" : {'selection_mode': 'rectangular'},
             "ScaleTool" : {'selection_mode': 'rectangular'},
             "RotateTool" : {'rotation_type': '2d'},
-            "AlignTool" : {'mode': 'horizontal_align'},
+            "AlignTool" : {'mode': 'horizontal_align'},# mode is atom, group or template
             "StructureTool" :  {'mode': 'atom', 'bond_angle': '30', 'bond_type': 'single', 'structure': 'C'},
             "ArrowPlusTool" : {'angle': '15', 'arrow_type':'normal'},
-            "MarkTool" : {'mark_type': 'charge_plus'},
+            "PlusChargeTool" : {'type': 'normal'},
+            "MinusChargeTool" : {'type': 'normal'},
+            "LonepairTool" : {'type': 'dots'},
             "TextTool" : {'font_name': 'Sans Serif', 'font_size': Settings.text_size},
             "ColorTool" : {'color': (240,2,17), 'color_index': 13, 'selection_mode': 'rectangular'},
             "BracketTool" : {'bracket_type': 'square'},

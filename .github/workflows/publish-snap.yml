@@ -17,18 +17,6 @@ jobs:
         uses: snapcore/action-build@v1
         id: build-snap
 
-      - uses: pozetroninc/github-action-get-latest-release@master
-        id: latest-tag
-        with:
-          repository: ${{ github.repository }}
-
-      - name: Upload Release Assets
-        uses: AButler/upload-release-assets@v3.0
-        with:
-          files: ${{ steps.build-snap.outputs.snap }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          release-tag: ${{ steps.latest-tag.outputs.release }}
-
       - name: Publish to Snap Store
         uses: snapcore/action-publish@v1
         env:

@@ -12,6 +12,7 @@ AppDir/
 *.zsync
 *.exe
 *.snap
+.pybuild/
 
 # C extensions
 *.so
