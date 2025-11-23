@@ -1,4 +1,4 @@
-name: Publish Snap
+name: Build Snap
 on:
   workflow_dispatch:
 
