@@ -51,12 +51,12 @@ parts:
     # places all files in meta/gui
     organize:
       '*': meta/gui/
-    #  'chemcanvas-mime.xml': meta/gui/mime/packages/
+      'chemcanvas-mime.xml': meta/gui/mime/packages/
     # keep only these files
     stage:
       - meta/gui/chemcanvas.svg
       - meta/gui/chemcanvas.desktop
-    #  - meta/gui/mime/packages/chemcanvas-mime.xml
+      - meta/gui/mime/packages/chemcanvas-mime.xml
     override-prime: |
       sed -i -e 's\^Icon=.*\Icon=${SNAP}/meta/gui/chemcanvas.svg\g' $SNAPCRAFT_STAGE/meta/gui/chemcanvas.desktop
       craftctl default
