@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 
 import sys, os
 import io
@@ -12,12 +12,12 @@ import traceback
 
 from PyQt5.QtCore import (qVersion, Qt, QSettings, QEventLoop, QTimer, QThread,
     QSize, QDir, QStandardPaths)
-from PyQt5.QtGui import QIcon, QPainter, QPixmap, QPalette
+from PyQt5.QtGui import QIcon, QPainter, QPixmap, QPalette, QPdfWriter
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QStyleFactory, QGridLayout, QGraphicsView, QSpacerItem, QVBoxLayout,
     QFileDialog, QAction, QActionGroup, QToolButton, QInputDialog, QPushButton, QWidget,
-    QSpinBox, QFontComboBox, QSizePolicy, QLabel, QMessageBox, QSlider, QDialog
+    QSpinBox, QFontComboBox, QSizePolicy, QLabel, QMessageBox, QSlider, QDialog, QDoubleSpinBox
 )
 
 sys.path.append(os.path.dirname(__file__)) # for enabling python 2 like import
@@ -28,15 +28,15 @@ from ui_mainwindow import Ui_MainWindow
 from paper import Paper
 from tools import *
 from tool_helpers import draw_recursively, get_objs_with_all_children
-from app_data import App, get_icon
+from app_data import App, get_icon, basic_colors, fill_colors
 from fileformats import *
 from template_manager import (TemplateManager, find_template_icon,
     TemplateChooserDialog, TemplateManagerDialog, TemplateSearchWidget)
 from fileformat_smiles import Smiles
 from widgets import (PaletteWidget, TextBoxDialog, UpdateDialog, UpdateChecker,
-    PixmapButton, FlowLayout, SearchBox, wait, ErrorDialog)
-from settings_ui import SettingsDialog
-
+    PixmapButton, FlowLayout, SearchBox, wait, ErrorDialog, ColorButton, TextEdit)
+from settings_ui import SettingsDialog, ImageExportSettingsDialog
+from reagent_label_tool import LabelPrintDialog
 from common import str_to_tuple
 
 
@@ -62,7 +62,9 @@ class Window(QMainWindow, Ui_MainWindow):
         height = int(self.settings.value("WindowHeight", 540))
         maximized = self.settings.value("WindowMaximized", "false") == "true"
         curr_dir = self.settings.value("WorkingDir", "")
-        show_carbon = self.settings.value("ShowCarbon", "None")
+        show_carbon = self.settings.value("ShowCarbon", "Terminal")
+        Settings.image_export_dpi = int(self.settings.value("ImageExportDpi", Settings.image_export_dpi))
+        Settings.image_export_margin = int(self.settings.value("ImageExportMargin", Settings.image_export_margin))
         # load App.Settings
         self.loadSettings()
 
@@ -93,7 +95,6 @@ class Window(QMainWindow, Ui_MainWindow):
         # setup graphics view
         self.graphicsView.setMouseTracking(True)
         self.graphicsView.setBackgroundBrush(Qt.gray)
-        self.graphicsView.setAlignment(Qt.AlignHCenter)
         # this improves drawing speed
         self.graphicsView.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
         # makes small circles and objects smoother
@@ -127,13 +128,6 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.toolBar.addSeparator()
 
-        # for settings bar, i.e below main toolbar
-        # stores all actions (including QActionGroup) associated to properties
-        # in settingsbar. maps settings_key to QAction which helps to
-        # obtain the widget associated to a particular settings key.
-        self.property_actions = {}
-        # this contains non-property widgets (eg. button, label, separators etc)
-        self.widget_actions = []
 
         # add toolbar actions
         self.toolGroup = QActionGroup(self.toolBar)# also needed to manually check the buttons
@@ -244,15 +238,18 @@ class Window(QMainWindow, Ui_MainWindow):
         self.actionOpen.triggered.connect(self.openFile)
         self.actionSave.triggered.connect(self.overwrite)
         self.actionSaveAs.triggered.connect(self.saveFileAs)
+        self.actionSaveAsPDF.triggered.connect(self.exportAsPDF)
         self.actionPNG.triggered.connect(self.exportAsPNG)
         self.actionSVG.triggered.connect(self.exportAsSVG)
         self.actionSvgEditable.triggered.connect(self.exportAsSvgEditable)
+        self.actionImageExportSettings.triggered.connect(self.imageExportSettings)
         self.actionTemplateManager.triggered.connect(self.manageTemplates)
 
         self.actionUndo.triggered.connect(self.undo)
         self.actionRedo.triggered.connect(self.redo)
         self.actionGenSmiles.triggered.connect(self.generateSmiles)
         self.actionReadSmiles.triggered.connect(self.readSmiles)
+        self.actionPrintLabel.triggered.connect(self.printLabel)
         self.actionDrawingSettings.triggered.connect(self.drawingSettings)
         self.actionCheckForUpdate.triggered.connect(self.checkForUpdate)
         self.actionAbout.triggered.connect(self.showAbout)
@@ -273,8 +270,6 @@ class Window(QMainWindow, Ui_MainWindow):
             self.showMaximized()
         else:
             self.show()
-        self.graphicsView.horizontalScrollBar().setValue(0)
-        self.graphicsView.verticalScrollBar().setValue(0)
         # check for update in background
         last_check_date = self.settings.value("UpdateCheckDate", "20250101")
         last = datetime.strptime(last_check_date, "%Y%m%d")
@@ -287,7 +282,6 @@ class Window(QMainWindow, Ui_MainWindow):
             self.thread.started.connect(self.updater.checkForUpdate)
             self.thread.finished.connect(self.thread.deleteLater)
             QTimer.singleShot(1000, self.thread.start)
-
 
     def loadSettings(self):
         """ Load drawing settings """
@@ -391,60 +385,54 @@ class Window(QMainWindow, Ui_MainWindow):
         self.graphicsView.scale(Settings.basic_scale*scale, Settings.basic_scale*scale)
         self.zoomLabel.setText("%i%%"%int(scale*100))
 
-    def onToolClick(self, action):
-        """ a slot which is called when tool is clicked """
-        self.setToolByName(action.name)
 
     def selectToolByName(self, tool_name):
+        """ with this we can switch tool type """
         if App.tool and App.tool.class_name == tool_name:
             return
         for action in self.toolGroup.actions():
             if action.name == tool_name:
-                action.setChecked(True)
-                break
-        self.setToolByName(tool_name)
+                action.trigger()
+                return
 
-    def setToolByName(self, tool_name):
+    def onToolClick(self, action):
+        """ a slot which is called when tool is clicked """
+        tool_name = action.name
         if App.tool:
             if App.tool.class_name == tool_name:# already selected
                 return
             App.tool.clear()
         self.clearStatus()
-        self.clearSettingsBar()
+        self.remove_settingsbar_actions(self.subToolBar.actions())# remove all
         toolsettings.setScope(tool_name)
-        App.tool = tool_class(tool_name)()
         self.createSettingsBar(tool_name)
+        App.tool = tool_class(tool_name)()
 
-    def clearSettingsBar(self):
-        # remove previously added subtoolbar items
-        for key,item in self.property_actions.items():
-            if isinstance(item, QActionGroup):
-                for action in item.actions():
-                    self.subToolBar.removeAction(action)
-                    item.removeAction(action)
-                    action.deleteLater()
-            else:
-                self.subToolBar.removeAction(item)
+    def remove_settingsbar_actions(self, actions):
+        """ pass QToolBar.actions() as argument to remove all actions """
+        action_groups = set()
 
-            # dont need to delete the associated widget, as the toolbar takes ownership of it.
-            item.deleteLater()
-
-        self.property_actions.clear()
-
-        for action in self.widget_actions:
+        for action in actions:
             self.subToolBar.removeAction(action)
+            if grp := action.actionGroup():
+                action_groups.add(grp)
+                grp.removeAction(action)
             action.deleteLater()
 
-        self.widget_actions.clear()
+        [grp.deleteLater() for grp in action_groups]
 
 
     def createSettingsBar(self, tool_name):
-        """ used by setToolByName()"""
+        """ called when tool changes """
         if not tool_name in settings_template:
             return
         groups = settings_template[tool_name]
+        self.create_settingsbar_from_template(groups)
+
+    def create_settingsbar_from_template(self, template):
+        prev_actions = self.subToolBar.actions()
         # create subtools
-        for group_type, group_name, templates in groups:
+        for group_type, group_name, templates in template:
             if group_type=="ButtonGroup":
                 toolGroup = QActionGroup(self.subToolBar)
                 selected_value = toolsettings[group_name]
@@ -457,9 +445,8 @@ class Window(QMainWindow, Ui_MainWindow):
                     if action_name == selected_value:
                         action.setChecked(True)
 
-                self.property_actions[group_name] = toolGroup
                 toolGroup.triggered.connect(self.onSubToolClick)
-                self.widget_actions.append(self.subToolBar.addSeparator())
+                self.subToolBar.addSeparator()
 
             elif group_type=="Button":
                 title, icon_name = templates
@@ -468,17 +455,28 @@ class Window(QMainWindow, Ui_MainWindow):
                 action.key = group_name
                 action.value = title
 
-                self.widget_actions.append(action)
                 btn = self.subToolBar.widgetForAction(action)
                 btn.triggered.connect(self.onButtonClick)
 
             elif group_type=="SpinBox":
                 spinbox = QSpinBox() # ToolBar takes ownership of the widget
-                spinbox.setRange(*templates)
+                spinbox.setRange(templates[0], templates[1])
+                spinbox.setSingleStep(templates[2])
                 spinbox.setValue(toolsettings[group_name])
-                spinbox.key = group_name
                 action = self.subToolBar.addWidget(spinbox)
-                self.property_actions[group_name] = action
+                action.key = group_name
+                spinbox.key = group_name
+                spinbox.valueChanged.connect(self.onSpinValueChange)
+
+            elif group_type=="DoubleSpinBox":
+                spinbox = QDoubleSpinBox() # ToolBar takes ownership of the widget
+                spinbox.setRange(templates[0], templates[1])
+                spinbox.setSingleStep(templates[2])
+                spinbox.setDecimals(1)
+                spinbox.setValue(toolsettings[group_name])
+                action = self.subToolBar.addWidget(spinbox)
+                action.key = group_name
+                spinbox.key = group_name
                 spinbox.valueChanged.connect(self.onSpinValueChange)
 
             elif group_type=="FontComboBox":
@@ -486,55 +484,43 @@ class Window(QMainWindow, Ui_MainWindow):
                 index = widget.findText(toolsettings[group_name])# -1 if not found
                 if index >=0:
                     widget.setCurrentIndex(index)
-                widget.key = group_name
                 action = self.subToolBar.addWidget(widget)
-                self.property_actions[group_name] = action
+                action.key = group_name
+                widget.key = group_name
                 widget.currentIndexChanged.connect(self.onFontChange)
 
             elif group_type=="PaletteWidget":
-                widget = PaletteWidget(self.subToolBar, toolsettings['color_index'])
-                widget.key = group_name
+                widget = PaletteWidget(self.subToolBar,
+                                        basic_colors, len(basic_colors))
+                widget.setColor(toolsettings[group_name])
                 action = self.subToolBar.addWidget(widget)
-                self.property_actions[group_name] = action
+                action.key = group_name
+                widget.key = group_name
                 widget.colorSelected.connect(self.onColorSelect)
+
+            elif group_type=="ColorButton":
+                widget = ColorButton(self.subToolBar)
+                widget.popup().hideNoneButton()
+                widget.setColor(toolsettings[group_name])
+                action = self.subToolBar.addWidget(widget)
+                action.key = group_name
+                widget.popup().key = group_name
+                widget.popup().colorSelected.connect(self.onColorSelect)
+
+            elif group_type=="FillColorButton":
+                widget = ColorButton(self.subToolBar, colors=fill_colors)
+                widget.setColor(toolsettings[group_name])
+                action = self.subToolBar.addWidget(widget)
+                action.key = group_name
+                widget.popup().key = group_name
+                widget.popup().colorSelected.connect(self.onColorSelect)
 
             elif group_type=="Label":
                 title = group_name
                 widget = QLabel(title, self.subToolBar)
                 action = self.subToolBar.addWidget(widget)
-                self.widget_actions.append(action)
-
-
-    def setCurrentToolProperty(self, key, val):
-        """ Used by Tools, set current tool settings value """
-        action = self.property_actions[key]
-
-        if isinstance(action, QActionGroup):
-            for act in action.actions():
-                if act.value == val:
-                    act.setChecked(True)
-                    # programmatically checking action will not emit triggered() signal and
-                    # will not update settings. So we are doing it here.
-                    toolsettings[key] = val
-                    return True
-            return
-
-        widget = self.subToolBar.widgetForAction(action)
-
-        if isinstance(widget, QSpinBox):
-            widget.setValue(val)
-
-        elif isinstance(widget, QFontComboBox):
-            index = widget.findText(val)# -1 if not found
-            if index >=0:
-                widget.setCurrentIndex(index)
-
-        elif isinstance(widget, PaletteWidget):
-            widget.setCurrentIndex(val)
-
-        else:
-            return False
-        return True
+        # return newly added actions
+        return [action for action in self.subToolBar.actions() if action not in prev_actions]
 
 
     def onButtonClick(self, action):
@@ -560,7 +546,7 @@ class Window(QMainWindow, Ui_MainWindow):
         widget = self.sender()
         App.tool.on_property_change(widget.key, color)
         toolsettings[widget.key] = color
-        toolsettings['color_index'] = widget.curr_index
+
 
     def selectStructure(self, title):
         for action in self.structureGroup.actions():
@@ -573,30 +559,51 @@ class Window(QMainWindow, Ui_MainWindow):
         toolsettings['structure'] = action.value
         App.tool.on_property_change('mode', action.key)
 
-    def changeStructureToolMode(self, mode):
+    def change_StructureTool_mode(self, mode):
         """ called by StructureTool.on_property_change(),
         handles selecting and deselecting buttons """
         if mode == toolsettings.getValue("StructureTool", 'mode'):
             return
-        toolsettings['mode'] = mode
+        # deselect ring or chain tool if not atom mode
+        self.set_tool_property('mode', mode)
         # settings for selected mode
         if mode =='atom':
             # select single bond if no bond is selected
-            if self.property_actions['bond_type'].checkedAction()==None:
-                self.setCurrentToolProperty('bond_type', 'single')
+            if toolsettings['bond_type']==None:
+                self.set_tool_property('bond_type', 'single')
         else:
             # bond should be deselected in all other modes
-            if action := self.property_actions['bond_type'].checkedAction():
-                action.setChecked(False)
-                toolsettings['bond_type'] = None
-        # structure should be deselected in ring and chain tool
-        if mode in ('chain', 'ring'):
-            if action := self.structureGroup.checkedAction():
-                action.setChecked(False)
-        else:
-            # deselect ring or chain tool in all other modes
-            if action := self.property_actions['mode'].checkedAction():
-                action.setChecked(False)
+            self.set_tool_property('bond_type', None)
+            # structure should be deselected in ring and chain tool
+            if mode in ('chain', 'ring'):
+                if action := self.structureGroup.checkedAction():
+                    action.setChecked(False)
+
+
+    def set_tool_property(self, key, val):
+        """ change toolsettings value and update settingsbar"""
+        toolsettings[key] = val
+        # show updated value
+        for action in self.subToolBar.actions():
+            if not hasattr(action, "key") or action.key != key:
+                continue
+            widget = self.subToolBar.widgetForAction(action)
+
+            if isinstance(widget, QToolButton):
+                action.setChecked(action.value==val)
+
+            elif isinstance(widget, QSpinBox):
+                widget.setValue(int(val))
+
+            elif isinstance(widget, QFontComboBox):
+                index = widget.findText(val)# -1 if not found
+                if index >=0:
+                    widget.setCurrentIndex(index)
+
+            elif isinstance(widget, PaletteWidget):
+                widget.setCurrentIndex(val)
+
+
 
 
     # ------------------------ FILE -------------------------
@@ -709,7 +716,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
     def exportAsPNG(self):
         App.tool.clear()
-        image = App.paper.getImage()
+        image = App.paper.getImage(dpi=Settings.image_export_dpi, margin=Settings.image_export_margin)
         if image.isNull():
             return
         path = self.getSaveFileName("png")
@@ -744,6 +751,32 @@ class Window(QMainWindow, Ui_MainWindow):
             return
         self.saveFile(filename)
 
+
+    def exportAsPDF(self):
+        App.tool.clear()
+        path = self.getSaveFileName("pdf")
+        filename, filtr = QFileDialog.getSaveFileName(self, "Save File",
+                        path, "Portable Document Format (*.pdf)")
+        if not filename:
+            return
+        writer = QPdfWriter(filename)
+        #page_w, page_h = App.paper.getDocument().page_size()
+        #writer.setPageSize(QPageSize(QSize(int(page_w), int(page_h))))
+        writer.setPageSize(QPdfWriter.A4)
+        writer.setCreator("ChemCanvas")
+        writer.setTitle("ChemCanvas Drawing")
+
+        painter = QPainter(writer)
+        App.paper.render(painter)
+        painter.end()
+
+    def imageExportSettings(self):
+        dlg = ImageExportSettingsDialog(self)
+        if dlg.exec()==QDialog.Accepted:
+            Settings.image_export_dpi = dlg.getDpi()
+            Settings.image_export_margin = dlg.getMargin()
+            self.settings.setValue("ImageExportDpi", Settings.image_export_dpi)
+            self.settings.setValue("ImageExportMargin", Settings.image_export_margin)
 
     # ------------------------ EDIT -------------------------
 
@@ -785,6 +818,12 @@ class Window(QMainWindow, Ui_MainWindow):
             App.paper.save_state_to_undo_stack("Read SMILES")
         except Exception as e:
             self.showException(e)
+
+
+    def printLabel(self):
+        dlg = LabelPrintDialog()
+        dlg.exec()
+
 
     # ------------------------- Others -------------------------------
 
@@ -832,6 +871,8 @@ class Window(QMainWindow, Ui_MainWindow):
         dlg = ErrorDialog(self, str(error), traceback.format_exc())
         dlg.exec()
 
+    def getTextEditor(self):
+        return TextEdit(self)
 
     def checkForUpdate(self):
         """ manual update check """

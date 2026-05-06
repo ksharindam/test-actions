@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 from math import degrees
 import operator
 from functools import reduce
@@ -19,7 +19,7 @@ bond_id_no = 1
 
 
 class Bond(Edge, DrawableObject):
-    focus_priority = 4
+    focus_priority = 3
     redraw_priority = 3
     is_toplevel = False
     meta__undo_properties = ("molecule", "type", "color",
@@ -146,16 +146,18 @@ class Bond(Edge, DrawableObject):
     def set_focus(self, focus: bool):
         """ handle draw or undraw on focus change """
         if focus:
-            self._focus_item = self.paper.addLine(self.atoms[0].pos + self.atoms[1].pos, width=self._line_width+8, color=Settings.focus_color)
-            self.paper.toBackground(self._focus_item)
+            self._focus_item = self.paper.addLine(self.atoms[0].pos + self.atoms[1].pos,
+                                width=self._line_width+8, color=Settings.focus_color)
+            self.paper.toSelectionLayer(self._focus_item)
         else: # unfocus
             self.paper.removeItem(self._focus_item)
             self._focus_item = None
 
     def set_selected(self, select):
         if select:
-            self._selection_item = self.paper.addLine(self.atoms[0].pos + self.atoms[1].pos, self._line_width+4, Settings.selection_color)
-            self.paper.toBackground(self._selection_item)
+            self._selection_item = self.paper.addLine(self.atoms[0].pos + self.atoms[1].pos,
+                                    self._line_width+4, Settings.selection_color)
+            self.paper.toSelectionLayer(self._selection_item)
         elif self._selection_item:
             self.paper.removeItem(self._selection_item)
             self._selection_item = None
@@ -195,6 +197,7 @@ class Bond(Edge, DrawableObject):
         self._line_width = max(self.line_width*self.molecule.scale_val, 1)
         method = "_draw_%s" % self.type
         getattr(self, method)()
+        [self.paper.toBondLayer(item) for item in self._main_items]
         # add all main items as focusable
         [self.paper.addFocusable(item, self) for item in self._main_items]
         # restore focus and selection
@@ -482,7 +485,7 @@ class Bond(Edge, DrawableObject):
         for ring in self.molecule.get_smallest_independent_cycles_dangerous_and_cached():
           if self.atoms[0] in ring and self.atoms[1] in ring:
             on_which_side = lambda xy: geo.line_get_side_of_point( line, xy)
-            circles += reduce( operator.add, map( on_which_side, [a.pos for a in ring if a not in self.atoms]))
+            circles += reduce( operator.add, map( on_which_side, [a.pos for a in ring if a not in self.atoms]), 0)
         if circles: # left or right side has greater number of ring atoms
           side = circles
         else:

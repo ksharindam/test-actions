@@ -1,62 +1,68 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 
 # This module contains some custom widgets and dialogs
 
+import os, re
 import platform
 import urllib.request
+from shutil import which
 
 from PyQt5.QtCore import (Qt, pyqtSignal, QPoint, QEventLoop, QTimer, QUrl,
     QSize, QRect, QObject)
-from PyQt5.QtGui import QPainter, QPixmap, QColor, QDesktopServices, QPen, QIcon
+from PyQt5.QtGui import (QPainter, QPixmap, QColor, QDesktopServices, QPen, QIcon,
+    QFont, QTextCharFormat, QTextCursor)
 
 from PyQt5.QtWidgets import ( QApplication, QDialog, QDialogButtonBox, QGridLayout,
     QLineEdit, QPushButton, QToolButton, QLabel, QApplication, QSizePolicy,
     QTextEdit, QWidget, QHBoxLayout, QLayout,
-    QComboBox, QScrollArea, QVBoxLayout, QStyle
+    QComboBox, QScrollArea, QVBoxLayout, QStyle,
+    QWidgetAction, QRadioButton, QColorDialog, QFontComboBox
 )
 
 from __init__ import __version__
-from app_data import get_icon
+from app_data import App, get_icon, basic_colors
 
-palette_colors = [
-    "#000000", "#404040", "#6b6b6b", "#808080", "#909090", "#ffffff",
-    "#790874", "#f209f1", "#09007c", "#000def", "#047f7d", "#05fef8",
-    "#7e0107", "#f00211", "#fff90d", "#07e00d", "#067820", "#827d05",
-]
 
 
 class PaletteWidget(QLabel):
     """ Color Palette that holds many colors"""
     colorSelected = pyqtSignal(tuple)# in (r, g, b) format
 
-    def __init__(self, parent, color_index=0):
+    def __init__(self, parent, colors=None, cols=6):
         QLabel.__init__(self, parent)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.cols = 18
-        self.rows = 1
+        self.colors = colors or basic_colors
+        self.color = None # (r,g,b) tuple
+        self.cols = cols
+        self.rows = -(len(self.colors) // (-cols))# math.ceil() alternative
         self.cell_size = 22
-        self.curr_index = color_index
+        self.curr_index = 0
         self.pixmap = QPixmap(self.cols*self.cell_size, self.rows*self.cell_size)
         self.drawPalette()
 
-    def setCurrentIndex(self, index):
-        if index >= len(palette_colors):
-            return
-        self.curr_index = index
-        self.drawPalette()# for showing color selection change
-        color = QColor(palette_colors[index]).getRgb()[:3]
-        self.colorSelected.emit(color)
+    def setColor(self, color):
+        """ color is (r,g,b) tuple. when color==None no color is selected """
+        if color:
+            for i,clr in enumerate(self.colors):
+                if QColor(clr)==QColor(*color):
+                    self.color = color
+                    self.drawPalette()
+                    return
+        self.color = None
+        self.drawPalette()
+
 
     def drawPalette(self):
         cols, rows, cell_size = self.cols, self.rows, self.cell_size
+        curr_color = self.color and QColor(*self.color) or None
         self.pixmap.fill()
         painter = QPainter(self.pixmap)
-        for i,color in enumerate(palette_colors):
+        for i,color in enumerate(self.colors):
             painter.setBrush(QColor(color))
             x, y = (i%cols)*cell_size, (i//cols)*cell_size
-            if i==self.curr_index:
+            if QColor(color)==curr_color:
                 painter.drawRect( x+1, y+1, cell_size-3, cell_size-3)
                 # visual feedback for selected color cell
                 painter.setBrush(Qt.white)
@@ -73,7 +79,82 @@ class PaletteWidget(QLabel):
         row = y // self.cell_size
         col = x // self.cell_size
         index = row * self.cols + col
-        self.setCurrentIndex(index)
+        color = QColor(self.colors[index]).getRgb()[:3]
+        self.setColor(color)
+        self.colorSelected.emit(color)
+
+
+class ColorChooserWidget(QWidget):
+
+    colorSelected = pyqtSignal(tuple)
+
+    def __init__(self, parent=None, colors=None):
+        QWidget.__init__(self, parent)
+        layout = QGridLayout(self)
+        self.noColorBtn = QRadioButton("None", self)
+        self.palette = PaletteWidget(self, colors)
+        self.moreColorsBtn = QPushButton("More Colors...", self)
+        layout.addWidget(self.noColorBtn, 0,0,1,1)
+        layout.addWidget(self.palette, 1,0,1,1)
+        layout.addWidget(self.moreColorsBtn, 2,0,1,1)
+        # connect signals
+        self.palette.colorSelected.connect(self.onColorSelect)
+        self.noColorBtn.clicked.connect(self.onNoneButtonClick)
+        self.moreColorsBtn.clicked.connect(self.onMoreColorsBtnClick)
+        self.color = None
+
+    def hideNoneButton(self):
+        self.noColorBtn.hide()
+
+    def setColor(self, color):
+        self.color = color
+        self.noColorBtn.setChecked(color==None)
+        self.palette.setColor(color)
+
+    def onColorSelect(self, color):
+        self.setColor(color)
+        self.colorSelected.emit(color or tuple())# can not emit None
+
+    def onNoneButtonClick(self):
+        self.onColorSelect(None)
+
+    def onMoreColorsBtnClick(self):
+        color = self.color or (0,0,0)
+        color = QColorDialog.getColor(QColor(*color), self)
+        if color.isValid():
+            self.onColorSelect(color.getRgb()[:3])
+
+
+class ColorButton(QToolButton):
+    def __init__(self, parent, colors=None):
+        QToolButton.__init__(self, parent)
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.colorChooserPopup = ColorChooserWidget(self, colors)
+        self.colorChooserPopup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        action = QWidgetAction(self)
+        action.setDefaultWidget(self.colorChooserPopup)
+        self.addAction(action)
+        self.colorChooserPopup.colorSelected.connect(self.setIconColor)
+        self.colorChooserPopup.colorSelected.connect(action.trigger)# to close popup
+
+    def popup(self):
+        return self.colorChooserPopup
+
+    def setColor(self, color):
+        self.setIconColor(color)
+        self.popup().setColor(color)
+
+    def setIconColor(self, color):
+        fill_color = color or (255,255,255)
+        pm = QPixmap(22,22)
+        pm.fill(QColor(*fill_color))
+        painter = QPainter(pm)
+        painter.drawRect(0,0,21,21)
+        if not color:
+            painter.drawLine(0,0,21,21)
+            painter.drawLine(0,21,21,0)
+        painter.end()
+        self.setIcon(QIcon(pm))
 
 # ---------------------- Template Button Widget -------------------
 
@@ -386,18 +467,20 @@ class UpdateDialog(QDialog):
 
 
     def download(self):
+        filename = None
         if platform.system()=="Windows":
             filename = "ChemCanvas.exe"
-        # currently we provide x86_64 and armhf AppImage
         elif platform.system()=="Linux":
-            arch = platform.machine()=="armv7l" and "armhf" or "x86_64"
-            filename = "ChemCanvas-%s.AppImage" % arch
-        # platform not supported, or may be could not detect properly
-        else:
-            addr = "https://github.com/ksharindam/chemcanvas/releases/latest"
+            if which("dpkg") and "APPIMAGE" not in os.environ:
+                filename = "chemcanvas_all.deb"
+            elif platform.machine() in ("aarch64", "x86_64"):
+                filename = "ChemCanvas-%s.AppImage" % platform.machine()
+        if filename:
+            addr = "https://github.com/ksharindam/chemcanvas/releases/latest/download/%s" % filename
             QDesktopServices.openUrl(QUrl(addr))
             return
-        addr = "https://github.com/ksharindam/chemcanvas/releases/latest/download/%s" % filename
+        # platform not supported, or may be could not detect properly
+        addr = "https://github.com/ksharindam/chemcanvas/releases/latest"
         QDesktopServices.openUrl(QUrl(addr))
 
 
@@ -514,3 +597,204 @@ def wait(millisec):
     QTimer.singleShot(millisec, loop.quit)
     loop.exec()
 
+
+
+
+class TextEdit(QDialog):
+    """ Text editor for TextTool """
+    def __init__(self, parent):
+        QDialog.__init__(self, parent)
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        layout = QGridLayout(self)
+        self.formattingBtnContainer = QWidget(self)
+        formattingLayout = QHBoxLayout(self.formattingBtnContainer)
+        formattingLayout.setSpacing(0)
+        formattingLayout.setContentsMargins(0,0,0,0)
+        self.boldBtn = QToolButton(self)
+        self.boldBtn.setIconSize(QSize(22,22))
+        self.boldBtn.setIcon(QIcon(":/icons/bold.png"))
+        self.boldBtn.setToolTip("Bold")
+        self.boldBtn.setCheckable(True)
+        self.italicBtn = QToolButton(self)
+        self.italicBtn.setIconSize(QSize(22,22))
+        self.italicBtn.setIcon(QIcon(":/icons/italic.png"))
+        self.italicBtn.setToolTip("Italic")
+        self.italicBtn.setCheckable(True)
+        self.underlineBtn = QToolButton(self)
+        self.underlineBtn.setIconSize(QSize(22,22))
+        self.underlineBtn.setIcon(QIcon(":/icons/underline.png"))
+        self.underlineBtn.setToolTip("Underline")
+        self.underlineBtn.setCheckable(True)
+        self.subscriptBtn = QToolButton(self)
+        self.subscriptBtn.setIconSize(QSize(22,22))
+        self.subscriptBtn.setIcon(QIcon(":/icons/subscript.png"))
+        self.subscriptBtn.setToolTip("Subscript")
+        self.subscriptBtn.setCheckable(True)
+        self.superscriptBtn = QToolButton(self)
+        self.superscriptBtn.setIconSize(QSize(22,22))
+        self.superscriptBtn.setIcon(QIcon(":/icons/superscript.png"))
+        self.superscriptBtn.setToolTip("Superscript")
+        self.superscriptBtn.setCheckable(True)
+        self.formulaBtn = QToolButton(self)
+        self.formulaBtn.setIconSize(QSize(50,22))
+        self.formulaBtn.setIcon(QIcon(":/icons/formula.png"))
+        self.formulaBtn.setToolTip("Subscript Numbers")
+        self.textEdit = QTextEdit(self)
+        self.symbolContainer = QWidget(self)
+        symbolLayout = QGridLayout(self.symbolContainer)
+        symbolLayout.setSpacing(0)
+        symbolLayout.setContentsMargins(0,0,0,0)
+        symbols = ["°", "Δ", "α", "β", "γ", "δ", "λ", "μ", "ν", "π", "σ", "‡"]
+        for i,symbol in enumerate(symbols):
+            btn = QToolButton(self.symbolContainer)
+            btn.setText(symbol)
+            btn.clicked.connect(self.onSymbolClick)
+            symbolLayout.addWidget(btn, i//2, i%2, 1,1)
+        # layout toplevel widgets
+        layout.addWidget(self.formattingBtnContainer, 0,1,1,1)
+        layout.addWidget(self.symbolContainer, 1,0,1,1)
+        layout.addWidget(self.textEdit, 1,1,1,1)
+        # layout formattings buttons
+        for widget in (self.boldBtn, self.italicBtn, self.underlineBtn,
+                        self.subscriptBtn, self.superscriptBtn, self.formulaBtn):
+            formattingLayout.addWidget(widget)
+        # connect signals
+        self.boldBtn.clicked.connect(self.toggleBold)
+        self.italicBtn.clicked.connect(self.toggleItalic)
+        self.underlineBtn.clicked.connect(self.toggleUnderline)
+        self.subscriptBtn.clicked.connect(self.toggleSubscript)
+        self.superscriptBtn.clicked.connect(self.toggleSuperscript)
+        self.formulaBtn.clicked.connect(self.toggleFormula)
+        self.textEdit.currentCharFormatChanged.connect(self.onCharFormatChange)
+        self.textEdit.setFocus(True)
+
+    """def popupAt(self, x, y):
+        # height is not yet calculated, so move this dialog in showEvent
+        view_pos = App.paper.view.mapFromScene(x,y)
+        self.popup_at = App.paper.view.mapToGlobal(view_pos)
+
+    def showEvent(self, ev):
+        self.move(self.popup_at - QPoint(0,self.height()))
+        QDialog.showEvent(self, ev)"""
+
+    def onSymbolClick(self):
+        self.textEdit.insertPlainText(self.sender().text())
+
+    def onCharFormatChange(self, fmt):
+        self.boldBtn.setChecked(fmt.fontWeight()==QFont.Bold)
+        self.italicBtn.setChecked(fmt.fontItalic())
+        self.underlineBtn.setChecked(fmt.fontUnderline())
+        self.subscriptBtn.setChecked(fmt.verticalAlignment()==QTextCharFormat.AlignSubScript)
+        self.superscriptBtn.setChecked(fmt.verticalAlignment()==QTextCharFormat.AlignSuperScript)
+
+    def toggleBold(self):
+        fmt = self.textEdit.textCursor().charFormat()
+        weight = QFont.Bold if fmt.fontWeight()<QFont.Bold else QFont.Normal
+        self.textEdit.setFontWeight(weight)
+
+    def toggleItalic(self):
+        fmt = self.textEdit.textCursor().charFormat()
+        self.textEdit.setFontItalic(not fmt.fontItalic())
+
+    def toggleUnderline(self):
+        fmt = self.textEdit.textCursor().charFormat()
+        self.textEdit.setFontUnderline(not fmt.fontUnderline())
+
+    def toggleSubscript(self):
+        fmt = self.textEdit.textCursor().charFormat()
+        if fmt.verticalAlignment()==QTextCharFormat.AlignSubScript:
+            fmt.setVerticalAlignment(QTextCharFormat.AlignNormal)
+        else:
+            fmt.setVerticalAlignment(QTextCharFormat.AlignSubScript)
+        self.textEdit.setCurrentCharFormat(fmt)
+
+    def toggleSuperscript(self):
+        fmt = self.textEdit.textCursor().charFormat()
+        if fmt.verticalAlignment()==QTextCharFormat.AlignSuperScript:
+            fmt.setVerticalAlignment(QTextCharFormat.AlignNormal)
+        else:
+            fmt.setVerticalAlignment(QTextCharFormat.AlignSuperScript)
+        self.textEdit.setCurrentCharFormat(fmt)
+
+    def toggleFormula(self):
+        cur = self.textEdit.textCursor()
+        if cur.hasSelection():
+            text = cur.selectedText()
+            start = cur.selectionStart()
+        else:
+            text = self.textEdit.toPlainText()
+            start = 0
+        # [( subscript numbers next to alphabet or bracket
+        for m in re.finditer("([A-Za-z)\]])(\d+)", text):
+            cur.setPosition(start+m.end() - len(m.group(2)))
+            cur.setPosition(start+m.end(), QTextCursor.KeepAnchor)
+            fmt =  QTextCharFormat()
+            fmt.setVerticalAlignment(QTextCharFormat.AlignSubScript)
+            cur.mergeCharFormat(fmt)
+
+    def setText(self, text):
+        """ set html text """
+        self.textEdit.setHtml(text)
+        self.textEdit.moveCursor(QTextCursor.End)
+
+    def getText(self):
+        """ get html text """
+        text = self.textEdit.toPlainText()
+        result = ""
+        cur = self.textEdit.textCursor()
+        prev_fmt = None
+        prev_bold, prev_italic, prev_underline = False, False, False
+        prev_v_align = QTextCharFormat.AlignNormal
+        for i in range(len(text)):
+            cur.setPosition(i+1)
+            start_tags = []
+            end_tags = []
+            if  (fmt := cur.charFormat()) != prev_fmt:
+                # bold
+                if (bold := fmt.fontWeight()==QFont.Bold) != prev_bold:
+                    if bold:
+                        start_tags.append("<b>")
+                    else:
+                        end_tags.append("</b>")
+                    prev_bold = bold
+                # italic
+                if (italic := fmt.fontItalic()) != prev_italic:
+                    if italic:
+                        start_tags.append("<i>")
+                    else:
+                        end_tags.append("</i>")
+                    prev_italic = italic
+                # underline
+                if (underline := fmt.fontUnderline()) != prev_underline:
+                    if underline:
+                        start_tags.append("<u>")
+                    else:
+                        end_tags.append("</u>")
+                    prev_underline = underline
+                # subscript and superscript
+                if (v_align := fmt.verticalAlignment()) != prev_v_align:
+                    if prev_v_align==QTextCharFormat.AlignSubScript:
+                        end_tags.append("</sub>")
+                    elif prev_v_align==QTextCharFormat.AlignSuperScript:
+                        end_tags.append("</sup>")
+                    if v_align==QTextCharFormat.AlignSubScript:
+                        start_tags.append("<sub>")
+                    elif v_align==QTextCharFormat.AlignSuperScript:
+                        start_tags.append("<sup>")
+                    prev_v_align = v_align
+            prev_fmt = fmt
+            char = text[i].replace("<", "&lt;").replace(">", "&gt;")
+            result += "".join(end_tags) + "".join(start_tags) + char
+        # close tags at the end
+        if len(text):
+            if prev_bold:
+                result += "</b>"
+            if prev_italic:
+                result += "</i>"
+            if prev_underline:
+                result += "</u>"
+            if prev_v_align==QTextCharFormat.AlignSubScript:
+                result += "</sub>"
+            elif prev_v_align==QTextCharFormat.AlignSuperScript:
+                result += "</sup>"
+        return result.replace("\n", "<br/>")

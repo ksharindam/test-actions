@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Copyright (C) 2023-2025 Arindam Chaudhuri <ksharindam@gmail.com> -->
+<!-- Copyright (C) 2023-2026 Arindam Chaudhuri <ksharindam@gmail.com> -->
 <component type="desktop-application">
   <id>io.github.ksharindam.chemcanvas</id>
   <metadata_license>FSFAP</metadata_license>
@@ -32,6 +32,7 @@
   </categories>
   <launchable type="desktop-id">io.github.ksharindam.chemcanvas.desktop</launchable>
   <url type="homepage">https://ksharindam.github.io/chemcanvas/</url>
+  <url type="vcs-browser">https://ksharindam.github.io/chemcanvas/</url>
   <content_rating type="oars-1.0" />
 
   <branding>
@@ -40,13 +41,10 @@
   </branding>
 
   <releases>
-    <release version="0.10.0" date="2025-10-30">
+    <release version="0.12.0" date="2026-04-02">
       <description>
         <ul>
-          <li>Expand fuctional group.</li>
-          <li>Prsss Ctrl+A to selects all in MoveTool.</li>
-          <li>Split mark tools into separate charge, lonepair and radical tools in main toolbar.</li>
-          <li>Left click to add marks and right click to remove marks.</li>
+          <li>Added rich text editor in TextTool with bold, underline, subscript support.</li>
         </ul>
       </description>
     </release>

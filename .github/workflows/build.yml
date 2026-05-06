@@ -1,0 +1,96 @@
+name: Build Packages
+
+on:
+  push:
+  release:
+    types: [published]
+
+# required for uploading assets
+permissions:
+  contents: write
+
+jobs:
+  AppImage:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ARCH: x86_64
+            RUNS_ON: ubuntu-latest
+          #- ARCH: aarch64
+          #  RUNS_ON: ubuntu-24.04-arm
+
+    name: Build ${{ matrix.ARCH }}
+    runs-on: ${{ matrix.RUNS_ON }}
+    env:
+      ARCH: ${{ matrix.ARCH }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build AppImage
+        run: |
+          cd AppImage
+          bash -ex build-in-docker.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoQuick-AppImage
+          path: "AppImage/ChemCanvas*.AppImage"
+          retention-days: 2
+
+  deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Deb
+        run: |
+          sudo apt-get install -y debhelper dh-python build-essential python3-pyqt5 pyqt5-dev-tools
+          sudo pip3 install --ignore-installed setuptools packaging
+          dpkg-buildpackage -b -uc -us
+          mv ../*.deb chemcanvas_all.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoQuick-Debian-Package
+          path: "*.deb"
+          retention-days: 2
+
+  exe:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8.7'
+
+      - name: Install Dependencies
+        run: |
+          pip3 install PyQt5
+          pip3 install pyinstaller
+
+      - name: Build ChemCanvas
+        run: |
+          pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc
+          pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
+          cd Windows
+          pyinstaller chemcanvas.spec
+
+      - name: Create Exe Installer
+        uses: joncloud/makensis-action@v5.0
+        with:
+          script-file: ./Windows/ChemCanvas.nsi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoQuick-Windows-Installer
+          path: ./windows/*.exe
+          retention-days: 2
+

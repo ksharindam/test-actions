@@ -1,6 +1,6 @@
 ; HM NIS Edit Wizard helper defines
 !define PROG_NAME "ChemCanvas"
-!define PROG_VERSION "0.10.0"
+!define PROG_VERSION "0.12.0"
 !define PROG_PUBLISHER "Arindamsoft"
 !define PROG_ICON "chemcanvas.ico"
 !define PROG_EXEC "chemcanvas.exe"
@@ -83,11 +83,14 @@ Section "MainSection" SEC01
   File "${QTBIN_DIR}\Qt5Core.dll"
   File "${QTBIN_DIR}\Qt5Gui.dll"
   File "${QTBIN_DIR}\Qt5Widgets.dll"
+  File "${QTBIN_DIR}\Qt5PrintSupport.dll"
   ; Install Qt5 plugins
   SetOutPath "$INSTDIR\_internal\PyQt5\Qt5\plugins\platforms"
   File "${QTPLUGINS_DIR}\platforms\qwindows.dll"
   SetOutPath "$INSTDIR\_internal\PyQt5\Qt5\plugins\styles"
   File "${QTPLUGINS_DIR}\styles\qwindowsvistastyle.dll"
+  SetOutPath "$INSTDIR\_internal\PyQt5\Qt5\plugins\printsupport"
+  File "${QTPLUGINS_DIR}\printsupport\windowsprintersupport.dll"
   ; Install program and icon
   SetOutPath "$INSTDIR"
   File "${BUILDDIR}\chemcanvas.exe"

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 from app_data import App, Settings
 from undo_manager import UndoManager
 from drawing_parents import Color, Font, Align, PenStyle, LineCap, hex_color
@@ -12,7 +12,7 @@ from document import Document
 from PyQt5.QtWidgets import QGraphicsScene, QGraphicsItem, QGraphicsTextItem, QMenu
 from PyQt5.QtCore import QRectF, QPointF, Qt
 from PyQt5.QtGui import (QColor, QPen, QBrush, QPolygonF, QPainterPath,
-        QFontMetricsF, QFont, QImage, QPainter)
+        QFontMetricsF, QFont, QImage, QPainter, QTransform)
 
 
 
@@ -300,6 +300,8 @@ class Paper(QGraphicsScene):
         item.setTransformOriginPoint(item.boundingRect().center())
         item.setRotation(rotation)
 
+    def item_at(self, x,y):
+        return self.itemAt(QPointF(x,y), QTransform())
 
     def itemBoundingRect(self, item):
         x, y, w, h = item.sceneBoundingRect().getRect()
@@ -320,11 +322,17 @@ class Paper(QGraphicsScene):
         bboxes = [self.itemBoundingBox(item) for item in items]
         return bbox_of_bboxes(bboxes)
 
-    def toForeground(self, item):
-        item.setZValue(1)
+    def toTopLayer(self, item):
+        item.setZValue(4)
 
-    def toBackground(self, item):
-        item.setZValue(-1)
+    def toBottomLayer(self, item):
+        item.setZValue(-4)
+
+    def toBondLayer(self, item):
+        item.setZValue(-2)
+
+    def toSelectionLayer(self, item):
+        item.setZValue(-3)
 
     def moveItemsBy(self, items, dx, dy):
         """ move graphics item by dx, dy """
@@ -419,11 +427,11 @@ class Paper(QGraphicsScene):
             objs = self.objectsInRect([x-3,y-3,x+3,y+3])
             if objs:
                 objs = sorted(objs, key=lambda obj : obj.focus_priority)
-                under_cursor = [itm.object for itm in set(self.items(QPointF(x,y))) & self.focusable_items]
-                under_cursor = sorted(under_cursor, key=lambda obj : obj.focus_priority)
-                objs = under_cursor + [o for o in objs if o.class_name!="Atom"]
+                focusables = set(self.items(QPointF(x,y))) & self.focusable_items
+                under_cursor = [itm.object for itm in self.items(QPointF(x,y)) if itm in focusables]
+                objs = under_cursor + objs
                 objs = [o for o in objs if o not in self.do_not_focus]
-            focused_obj = objs[0] if len(objs) else None
+            focused_obj = objs[0] if objs else None
             self.changeFocusTo(focused_obj)
 
         App.tool.on_mouse_move(x, y)
@@ -509,20 +517,21 @@ class Paper(QGraphicsScene):
 
     # ------------------------ OTHERS --------------------------
 
-    def getImage(self, margin=10):
-        x1, y1, w, h = map(int, self.sceneRect().getCoords())
-        image = QImage(w, h, QImage.Format_RGB32)
+    def getImage(self, dpi=-1, margin=0):
+        # source area
+        x1, y1, x2, y2 = map(int, self.allObjectsBoundingBox())
+        src_rect = QRectF(x1,y1, x2-x1+1, y2-y1+1)
+        # dest area
+        scale = dpi/Settings.render_dpi if dpi>0 else 1.0
+        w, h = int(round((x2-x1+1)*scale)), int(round((y2-y1+1)*scale))
+        dst_rect = QRectF(margin, margin, w, h)
+        # render
+        image = QImage(w+2*margin, h+2*margin, QImage.Format_RGB32)
         image.fill(Qt.white)
-
         painter = QPainter(image)
         painter.setRenderHint(QPainter.Antialiasing)
-        self.render(painter)
+        self.render(painter, dst_rect, src_rect)
         painter.end()
-
-        x1, y1, x2, y2 = map(int, self.allObjectsBoundingBox())
-        x1, y1 = max(x1-margin, 0), max(y1-margin, 0)
-        x2, y2 = min(x2+margin,w), min(y2+margin, h)
-        image = image.copy(x1, y1, x2-x1, y2-y1)
         return image
 
 
@@ -562,7 +571,7 @@ class Paper(QGraphicsScene):
             self.addObject(obj)
             draw_objs_recursively([obj])
 
-        image = self.getImage(margin=0)
+        image = self.getImage()
         objs = get_objs_with_all_children(objects)
         for obj in objs:
             obj.delete_from_paper()
@@ -632,10 +641,13 @@ def html_to_svg(text):
     # < and > characters already replaced with &lt; and &gt; in Text obj.
     # replacing & character also replaces & character of &lt; and &gt;
     text = text.replace("&", "&amp;").replace("&amp;lt;", "&lt;").replace("&amp;gt;", "&gt;")
-    text = text.replace('<sup>', '<tspan baseline-shift="super" font-size="75%">')
-    text = text.replace('</sup>', '</tspan>')
+    text = text.replace('<b>', '<tspan font-weight="bold">')
+    text = text.replace('<i>', '<tspan font-style="italic">')
+    text = text.replace('<u>', '<tspan text-decoration="underline">')
     text = text.replace('<sub>', '<tspan baseline-shift="sub" font-size="75%">')
-    text = text.replace('</sub>', '</tspan>')
+    text = text.replace('<sup>', '<tspan baseline-shift="super" font-size="75%">')
+    for tag in ('</b>', '</i>', '</u>', '</sub>', '</sup>'):
+        text = text.replace(tag, '</tspan>')
     return text
 
 
@@ -669,7 +681,8 @@ class SvgPaper:
         self.items.append(cmd)
 
     def drawRect(self, rect, width=1, color=Color.black, fill=None):
-        cmd = '<rect x1="%s" y1="%s" x2="%s" y2="%s" ' % tuple(map(float_to_str, rect))
+        x1, y1, x2, y2 =  rect
+        cmd = '<rect x="%s" y="%s" width="%s" height="%s" ' % tuple(map(float_to_str,(x1,y1,x2-x1,y2-y1)))
         cmd += stroke_attrs(width, color)
         cmd += fill_attr(fill)
         cmd += '/>'
@@ -731,8 +744,9 @@ def get_pen_info(qpen):
     return color, width, qpen.style(), qpen.capStyle()
 
 def get_brush_info(brush):
-    # for solid colored brush only
-    return to_native_color(brush.color())
+    if brush.style()==Qt.SolidPattern:
+        return to_native_color(brush.color())
+    return None # Qt.NoBrush
 
 
 

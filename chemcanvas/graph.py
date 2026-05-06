@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
 # Copyright (C) 2003-2008 Beda Kosata <beda@zirael.org>
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 from functools import reduce
 import operator, warnings
 import copy
@@ -358,7 +358,7 @@ class Graph:
                         now = set( [to_go.pop()])
                         path = set( now)
                         while now:
-                            now = reduce( operator.or_, [set( [n for n in v.neighbors if n.degree == 2]) for v in now])
+                            now = reduce( operator.or_, [set( [n for n in v.neighbors if n.degree == 2]) for v in now], set())
                             now &= to_go
                             to_go -= now
                             path.update( now)
@@ -396,7 +396,7 @@ class Graph:
             # now try to remove the biggest ones
             while len( cs) - ncycles > 0:
                 c = set( cs.pop( -1))
-                if not c <= reduce( operator.or_, map( set, cs)):
+                if not c <= reduce( operator.or_, map( set, cs), set()):
                     cs.insert( 0, c)
             cycles = set( [frozenset( _c) for _c in cs])
 

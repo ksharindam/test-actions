@@ -24,7 +24,7 @@
     <item row="1" column="1">
      <widget class="QGraphicsView" name="graphicsView">
       <property name="alignment">
-       <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+       <set>Qt::AlignCenter</set>
       </property>
      </widget>
     </item>
@@ -74,10 +74,12 @@
      <addaction name="actionPNG"/>
      <addaction name="actionSVG"/>
      <addaction name="actionSvgEditable"/>
+     <addaction name="actionImageExportSettings"/>
     </widget>
     <addaction name="actionOpen"/>
     <addaction name="actionSave"/>
     <addaction name="actionSaveAs"/>
+    <addaction name="actionSaveAsPDF"/>
     <addaction name="menuExportImage"/>
     <addaction name="actionTemplateManager"/>
     <addaction name="actionQuit"/>
@@ -95,6 +97,7 @@
     </property>
     <addaction name="actionGenSmiles"/>
     <addaction name="actionReadSmiles"/>
+    <addaction name="actionPrintLabel"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -295,6 +298,33 @@
    </property>
    <property name="text">
     <string>All</string>
+   </property>
+  </action>
+  <action name="actionSaveAsPDF">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/pdf.png</normaloff>:/icons/pdf.png</iconset>
+   </property>
+   <property name="text">
+    <string>Save As PDF</string>
+   </property>
+  </action>
+  <action name="actionImageExportSettings">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/settings.png</normaloff>:/icons/settings.png</iconset>
+   </property>
+   <property name="text">
+    <string>Export Settings</string>
+   </property>
+  </action>
+  <action name="actionPrintLabel">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/reagent.png</normaloff>:/icons/reagent.png</iconset>
+   </property>
+   <property name="text">
+    <string>Print Reagent Label</string>
    </property>
   </action>
  </widget>

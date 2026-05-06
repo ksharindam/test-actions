@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 from math import pi as PI
 from drawing_parents import DrawableObject, Color, PenStyle
 from app_data import Settings
@@ -383,7 +383,7 @@ class Arrow(DrawableObject):
                 self._focus_item = self.paper.addCubicBezier(self.points, width, color=Settings.focus_color)
             else:
                 self._focus_item = self.paper.addPolyline(self.points, width, color=Settings.focus_color)
-            self.paper.toBackground(self._focus_item)
+            self._focus_item.stackBefore(self._main_items[0])
         elif self._focus_item:
             self.paper.removeItem(self._focus_item)
             self._focus_item = None
@@ -395,7 +395,7 @@ class Arrow(DrawableObject):
                 self._selection_item = self.paper.addCubicBezier(self.points, width, color=Settings.selection_color)
             else:
                 self._selection_item = self.paper.addPolyline(self.points, width, color=Settings.selection_color)
-            self.paper.toBackground(self._selection_item)
+            self._selection_item.stackBefore(self._main_items[0])
         elif self._selection_item:
             self.paper.removeItem(self._selection_item)
             self._selection_item = None

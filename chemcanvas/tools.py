@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
-# Copyright (C) 2022-2025 Arindam Chaudhuri <arindamsoft94@gmail.com>
+# Copyright (C) 2022-2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
 from functools import reduce
 import operator
 from math import sin, cos, asin, atan2
@@ -18,6 +18,7 @@ from delocalization import Delocalization
 from text import Text, Plus
 from arrow import Arrow
 from bracket import Bracket
+from shapes import Shape, Line, Rectangle, Ellipse
 import geometry as geo
 from common import bbox_of_bboxes, flatten
 from fileformat_smiles import Smiles
@@ -99,7 +100,7 @@ def on_object_context_menu_click(action):
 # SubMenu = another menu, i.e a tuple of actions and more submenus
 
 def create_object_property_menu(obj):
-    if obj and isinstance(obj, (Atom,Bond)):
+    if obj and isinstance(obj, (Atom,Bond,Shape)):
         menu_template = obj.menu_template
         if not menu_template:
             return
@@ -192,7 +193,7 @@ class SelectTool(Tool):
             return
         if self._selection_item:
             App.paper.removeItem(self._selection_item)
-        if toolsettings["selection_mode"] == 'lasso':
+        if toolsettings['selection_mode'] == 'lasso':
             self._polygon.append((x,y))
             self._selection_item = App.paper.addPolygon(self._polygon, style=PenStyle.dashed)
             objs = App.paper.objectsInPolygon(self._polygon)
@@ -535,7 +536,7 @@ class RotateTool(SelectTool):
     }
     def __init__(self):
         SelectTool.__init__(self)
-        self.show_status(self.tips[toolsettings["rotation_type"]])
+        self.show_status(self.tips[toolsettings['rotation_type']])
 
     def reset(self):
         self.mol_to_rotate = None
@@ -763,7 +764,7 @@ class AlignTool(Tool):
 
     def __init__(self):
         Tool.__init__(self)
-        self.show_status(self.tips[toolsettings["mode"]])
+        self.show_status(self.tips[toolsettings['mode']])
 
     def on_mouse_press(self, x,y):
         # get focused atom or bond
@@ -773,7 +774,7 @@ class AlignTool(Tool):
         if not isinstance(self.focused, (Atom, Bond)):
             return
         elif isinstance(self.focused, Atom):
-            if toolsettings['mode']!="inversion":
+            if toolsettings['mode']!='inversion':
                 return
             coords = self.focused.pos
         else:# Bond
@@ -894,17 +895,17 @@ class StructureTool(Tool):
         self.init_subtool(toolsettings['mode'])
 
     def init_subtool(self, mode):
-        if mode=="group":
-            mode="atom"
+        if mode=='group':
+            mode='atom'
         if self.mode==mode:
             return
         if self.subtool:
             self.subtool.clear()
-        if mode=="chain":
+        if mode=='chain':
             self.subtool = ChainTool()
-        elif mode=="ring":
+        elif mode=='ring':
             self.subtool = RingTool()
-        elif mode == "template":
+        elif mode=='template':
             self.subtool = TemplateTool()
         else:
             self.subtool = AtomTool()
@@ -936,9 +937,10 @@ class StructureTool(Tool):
 
     def on_property_change(self, key, value):
         if key=='mode':# atom, group and template
-            App.window.changeStructureToolMode(value)
+            App.window.change_StructureTool_mode(value)
             self.init_subtool(value)
         if key=='bond_type':
+            toolsettings[key] = value
             if toolsettings['mode']!='atom':
                 App.window.selectStructure("C")
 
@@ -1018,7 +1020,7 @@ class AtomTool(Tool):
         if "Shift" in App.paper.modifier_keys:
             atom2_pos = (x,y)
         else:
-            angle = int(toolsettings["bond_angle"])
+            angle = int(toolsettings['bond_angle'])
             bond_length = Settings.bond_length * self.atom1.molecule.scale_val
             atom2_pos = geo.circle_get_point( self.atom1.pos, bond_length, [x,y], angle)
         # we are clicking and dragging mouse
@@ -1156,16 +1158,16 @@ class AtomTool(Tool):
             bond = focused_obj
             selected_bond_type = toolsettings['bond_type']
             # switch between normal-double-triple
-            bond_modes = ("single", "double", "triple")
-            if selected_bond_type=="single" and bond.type in bond_modes:
+            bond_modes = ('single', 'double', 'triple')
+            if selected_bond_type=='single' and bond.type in bond_modes:
                 next_mode_index = (bond_modes.index(bond.type)+1) % 3
                 bond.set_type(bond_modes[next_mode_index])
             elif selected_bond_type not in (bond.type, None):
                 bond.set_type(selected_bond_type)
             # when selected type is either same as bond.type or None
-            elif bond.type in ("double", "delocalized", "bold2"):
+            elif bond.type in ('double', 'delocalized', 'bold2'):
                 bond.change_double_bond_alignment()
-            elif bond.type in ("coordinate", "wedge", "hashed_wedge"):
+            elif bond.type in ('coordinate', 'wedge', 'hashed_wedge'):
                 # reverse bond direction
                 bond.reverse_direction()
             # if bond order changes, hydrogens of atoms will be changed, so redraw
@@ -1244,7 +1246,7 @@ def refresh_attached_double_bonds(obj):
         bonds = obj.neighbor_edges
     elif isinstance(obj, Bond):
         bonds = set(obj.atom1.neighbor_edges + obj.atom2.neighbor_edges)
-    [b.redraw() for b in bonds if b.type in ("double","delocalized","bold2")]
+    [b.redraw() for b in bonds if b.type in ('double','delocalized','bold2')]
 
 
 
@@ -1521,12 +1523,12 @@ class ArrowPlusTool(Tool):
     def __init__(self):
         Tool.__init__(self)
         self.show_status(self.tips["on_init"])
-        self.init_subtool(toolsettings["arrow_type"])
+        self.init_subtool(toolsettings['arrow_type'])
 
     def init_subtool(self, type_):
-        if type_ in ("electron_flow", "fishhook"):
+        if type_ in ('electron_flow', 'fishhook'):
             self.subtool = SplineArrowTool()
-        elif type_ == "circular":
+        elif type_ == 'circular':
             self.subtool = CircularArrowTool()
         else:
             self.subtool = NormalArrowTool()
@@ -1554,7 +1556,7 @@ class ArrowPlusTool(Tool):
         self.subtool.clear()
 
     def on_property_change(self, key, value):
-        if key=="arrow_type":
+        if key=='arrow_type':
             self.subtool.clear()
             self.init_subtool(value)
 
@@ -1597,7 +1599,7 @@ class NormalArrowTool:
             if self.head_focused_arrow:
                 self.arrow = self.head_focused_arrow
                 # other arrows (e.g equilibrium) can not have more than two points
-                if "normal" in self.arrow.type:
+                if 'normal' in self.arrow.type:
                     self.arrow.points.append(self.mouse_press_pos)
                 self.head_focused_arrow = None
                 if self.focus_item:
@@ -1606,11 +1608,11 @@ class NormalArrowTool:
                     self.focus_item = None
             else:
                 # dragging on empty area, create new arrow
-                self.arrow = Arrow(toolsettings["arrow_type"])
+                self.arrow = Arrow(toolsettings['arrow_type'])
                 self.arrow.set_points([self.mouse_press_pos]*2)
                 App.paper.addObject(self.arrow)
 
-        angle = int(toolsettings["angle"])
+        angle = int(toolsettings['angle'])
         d = max(Settings.min_arrow_length, geo.point_distance(self.arrow.points[-2], (x,y)))
         pos = geo.circle_get_point(self.arrow.points[-2], d, (x,y), angle)
         self.arrow.points[-1] = pos
@@ -1623,7 +1625,7 @@ class NormalArrowTool:
         # if two lines are linear, merge them to single line
         if len(self.arrow.points)>2:
             a,b,c = self.arrow.points[-3:]
-            if "normal" in self.arrow.type:# normal and normal_simple
+            if 'normal' in self.arrow.type:# normal and normal_simple
                 if abs(geo.line_get_angle_from_east([a[0], a[1], b[0], b[1]]) - geo.line_get_angle_from_east([a[0], a[1], c[0], c[1]])) < 0.02:
                     self.arrow.points.pop(-2)
                     self.arrow.draw()
@@ -1660,7 +1662,7 @@ class CircularArrowTool:
         if App.paper.dragging:
             if not self.start_point:# drag just started after mouse press
                 self.start_point = self.mouse_press_pos
-                self.arrow = Arrow(toolsettings["arrow_type"])
+                self.arrow = Arrow(toolsettings['arrow_type'])
                 App.paper.addObject(self.arrow)
             # draw straight arrow
             self.arrow.set_points([self.start_point, (x,y)])
@@ -1709,7 +1711,7 @@ class SplineArrowTool:
         if App.paper.dragging:
             if not self.start_point:# drag just started after mouse press
                 self.start_point = self.mouse_press_pos
-                self.arrow = Arrow(toolsettings["arrow_type"])
+                self.arrow = Arrow(toolsettings['arrow_type'])
                 App.paper.addObject(self.arrow)
                 if focused := self.focused_on_press:
                     if (focused.class_name=="Atom" and focused.electron_src_marks_pos) \
@@ -1760,7 +1762,7 @@ class PlusChargeTool(Tool):
         if not isinstance(focused, Atom):
             return
         charge = focused.charge+1 if increase else 0
-        circle = toolsettings["type"] == "circled"
+        circle = toolsettings['type'] == 'circled'
         # if type changed between normal and circled, do not change charge value
         if not (increase and focused.charge and circle!=focused.circle_charge):
             focused.set_charge(charge)
@@ -1798,7 +1800,7 @@ class MinusChargeTool(Tool):
         if not isinstance(focused, Atom):
             return
         charge = focused.charge-1 if decrease else 0
-        circle = toolsettings["type"] == "circled"
+        circle = toolsettings['type'] == 'circled'
         # if type changed between normal and circled, do not change charge value
         if not (decrease and focused.charge and circle!=focused.circle_charge):
             focused.set_charge(charge)
@@ -1836,14 +1838,14 @@ class LonepairTool(Tool):
         if not isinstance(focused, Atom):
             return
         # if type changed between dotted and dashed, do not change lonepair number
-        if focused.lonepairs and focused.lonepair_type!=toolsettings["type"]:
-            focused.lonepair_type = toolsettings["type"]
+        if focused.lonepairs and focused.lonepair_type!=toolsettings['type']:
+            focused.lonepair_type = toolsettings['type']
             focused.draw()
             return
         count = max(focused.lonepairs+change, 0)
         if count != focused.lonepairs:
             focused.set_lonepairs(count)
-            focused.lonepair_type = toolsettings["type"]
+            focused.lonepair_type = toolsettings['type']
             focused.draw()
             App.paper.save_state_to_undo_stack("Set Lonepairs")
 
@@ -1900,89 +1902,108 @@ class RadicalTool(Tool):
 
 class TextTool(Tool):
     tips = {
-        "on_init": "Click on empty place to enter text edit mode",
-        "on_edit": "Press Esc to finish editing",
+        "on_init": "Click on emply place to add text; Double click to Edit Text; Right click to deselect",
     }
 
     def __init__(self):
         Tool.__init__(self)
-        self.text_obj = None
-        self.prev_font_info = None
-        self.clear()
+        self.selected = None
+        self.selection_item = None
+        self.new_text = None
+        self.pressed_text = None
+        # font info for new text object
+        self.orig_font_info = [toolsettings['font_name'], toolsettings['font_size']]
         self.show_status(self.tips["on_init"])
+
+    def on_mouse_press(self, x,y):
+        if (focused := App.paper.focused_obj) and isinstance(focused, Text):
+            self.prev_pos = (x,y)
+            self.pressed_text = focused
+
+    def on_mouse_move(self, x,y):
+        if not self.pressed_text or not App.paper.dragging:
+            return
+        dx, dy = x-self.prev_pos[0], y-self.prev_pos[1]
+        self.pressed_text.move_by(dx, dy)
+        App.paper.moveItemsBy(self.pressed_text.all_items, dx, dy)
+        self.prev_pos = (x,y)
+        if self.selected:# either dragging obj, or any other obj may be selected
+            self.clearSelection()
 
     def on_mouse_release(self, x,y):
         if not App.paper.dragging:
             self.on_mouse_click(x,y)
+        self.pressed_text = None
 
     def on_mouse_click(self, x,y):
-        prev_text_closed = bool(self.text_obj)
-        self.clear()
-        focused = App.paper.focused_obj
-        if focused:
+        self.clearSelection()
+        if focused := App.paper.focused_obj:
             if isinstance(focused, Text):
-                self.text_obj = focused
-                self.text = self.text_obj.text
-                # backup original font info
-                self.prev_font_info = (toolsettings['font_name'], toolsettings['font_size'])
-                # get font settings from selected text object, and set in settingsbar
-                App.window.setCurrentToolProperty("font_name", self.text_obj.font_name)
-                App.window.setCurrentToolProperty("font_size", self.text_obj.font_size)
-            else:
-                return
+                self.select(focused)
         else:
-            if prev_text_closed:
-                return
-            self.text_obj = Text()
-            App.paper.addObject(self.text_obj)
-            self.text_obj.set_pos(x,y)
-            self.text_obj.font_name = toolsettings['font_name']
-            self.text_obj.font_size = toolsettings['font_size']
-        self.started_typing = True
-        self.text_obj.set_text(self.text+"|")
-        self.text_obj.draw()
-        self.show_status(self.tips["on_edit"])
+            # clicked on empty place, create new text obj
+            dlg = App.window.getTextEditor()
+            #dlg.popupAt(x,y)
+            dlg.exec()
+            if text := dlg.getText():
+                text_obj = Text()
+                text_obj.text = text
+                text_obj.set_pos(x,y)
+                text_obj.font_name = self.orig_font_info[0]
+                text_obj.font_size = self.orig_font_info[1]
+                App.paper.addObject(text_obj)
+                text_obj.draw()
+                self.select(text_obj)
+                self.new_text = text_obj
+                App.paper.save_state_to_undo_stack("Add Text")
+
+    def on_mouse_double_click(self, x,y):
+        focused = App.paper.focused_obj
+        if not isinstance(focused, Text):
+            return
+        dlg = App.window.getTextEditor()
+        dlg.setText(focused.text)
+        #dlg.popupAt(x,y)
+        dlg.exec()
+        if (text := dlg.getText()) and text!=focused.text:
+            focused.set_text(text)
+            focused.draw()
+            self.clearSelection()
+            self.select(focused)
+            App.paper.save_state_to_undo_stack("Edit Text")
+
+    def on_right_click(self, x,y):
+        self.clearSelection()
+
+    def select(self, text_obj):
+        self.selected = text_obj
+        self.selection_item = App.paper.addRect(text_obj.bounding_box())
+        # get font settings from selected text object, and set in settingsbar
+        App.window.set_tool_property('font_name', text_obj.font_name)
+        App.window.set_tool_property('font_size', text_obj.font_size)
+
+    def clearSelection(self):
+        if self.selection_item:
+            App.paper.removeItem(self.selection_item)
+            self.selection_item = None
+        self.selected = None
+        # restore original font settings
+        App.window.set_tool_property('font_name', self.orig_font_info[0])
+        App.window.set_tool_property('font_size', self.orig_font_info[1])
+
+    def on_property_change(self, key, val):
+        if key in ("font_name", "font_size"):
+            if self.selected:
+                setattr(self.selected, key, val)
+                self.selected.draw()
+                # redraw selection after text size and boundary changed
+                App.paper.removeItem(self.selection_item)
+                self.selection_item = App.paper.addRect(self.selected.bounding_box())
+            if not self.selected or self.selected == self.new_text:
+                self.orig_font_info[["font_name", "font_size"].index(key)] = val
 
     def clear(self):
-        # finish typing, by removing cursor symbol
-        if self.text_obj:
-            if self.text:
-                self.text_obj.set_text(self.text)# removes cursor symbol
-                self.text_obj.draw()
-                App.paper.save_state_to_undo_stack("Add Text")
-            else:
-                self.text_obj.delete_from_paper()
-            self.text_obj = None
-        self.text = ""
-        self.started_typing = False
-        if self.prev_font_info:
-            App.window.setCurrentToolProperty("font_name", self.prev_font_info[0])
-            App.window.setCurrentToolProperty("font_size", self.prev_font_info[1])
-            self.prev_font_info = None
-        self.show_status(self.tips["on_init"])
-
-    def on_key_press(self, key, text):
-        if not self.started_typing:
-            return
-        if text:
-            self.text += text
-        else:
-            if key=="Backspace":
-                if self.text:
-                    self.text = self.text[:-1]
-            elif key in ("Return", "Enter"):
-                self.text += "\n"
-            elif key=="Esc":
-                self.clear()
-                return
-        self.text_obj.set_text(self.text+"|")
-        self.text_obj.draw()
-
-    def on_property_change(self, key, value):
-        if key=="text" and self.started_typing:
-            self.text += value
-            self.text_obj.set_text(self.text+"|")
-            self.text_obj.draw()
+        self.clearSelection()
 
 # ---------------------------- END TEXT TOOL ---------------------------
 
@@ -2000,7 +2021,7 @@ class ColorTool(SelectTool):
         selected = App.paper.selected_objs.copy()
         App.paper.deselectAll()
         if selected:
-            set_objects_color(selected, toolsettings["color"])
+            set_objects_color(selected, toolsettings['color'])
             App.paper.save_state_to_undo_stack("Color Changed")
 
     def on_mouse_move(self, x,y):
@@ -2045,6 +2066,366 @@ class BracketTool(Tool):
         self.bracket = None
 
 # ---------------------------- END BRACKET TOOL ---------------------------
+
+
+
+class ShapeTool(Tool):
+
+    modes = ('line', 'rectangle', 'ellipse')
+
+    def __init__(self):
+        Tool.__init__(self)
+        self.init_subtool(toolsettings['shape_type'])
+
+    def init_subtool(self, type_):
+        if type_=='line':
+            self.subtool = LineTool()
+        elif type_=='rectangle':
+            self.subtool = RectangleTool()
+        elif type_=='ellipse':
+            self.subtool = EllipseTool()
+        self.subtool.parent = self
+
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+        self.subtool.on_mouse_press(x,y)
+
+    def on_mouse_move(self, x,y):
+        self.subtool.on_mouse_move(x,y)
+
+    def on_mouse_release(self, x,y):
+        self.subtool.on_mouse_release(x,y)
+
+    def on_mouse_click(self, x, y):
+        pass
+
+    def on_object_clicked(self, obj):
+        """ called when different shape is clicked. then mode is changed
+        to that shape and drag handles are shown """
+        if obj.class_name.lower() in self.modes:
+            App.window.set_tool_property('shape_type', obj.class_name.lower())
+            self.on_property_change('shape_type', obj.class_name.lower())
+            self.subtool.create_handles(obj)
+
+    def clear(self):
+        self.subtool.clear()
+
+    def on_property_change(self, key, value):
+        if key=='shape_type':
+            self.subtool.clear()
+            #self.subtool.remove_toolbar_actions()
+            self.init_subtool(value)
+
+
+
+class LineTool:
+    tips = {
+        "on_init": "Press and drag to draw a Line",
+    }
+
+    def __init__(self):
+        self.reset()
+        self.handles = {}
+        App.window.showStatus(self.tips["on_init"])
+        #self.toolbar_actions = App.window.create_settingsbar_from_template(self.template)
+
+    def reset(self):
+        self.line = None # newly created
+        self.dragging_handle = None
+        self.mouse_press_pos = None
+
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+        if (item:=App.paper.item_at(x,y)) and item in self.handles:
+            self.dragging_handle = item
+            self.prev_pos = x,y
+
+    def on_mouse_move(self, x,y):
+        if not App.paper.dragging:
+            return
+        if self.dragging_handle:
+            line, i = self.handles[self.dragging_handle]
+            px, py = line.points[i]
+            dx, dy = x-self.prev_pos[0], y-self.prev_pos[1]
+            line.points[i] = (px+dx, py+dy)
+            line.draw()
+            self.create_handles(line)# redraw handles
+            self.dragging_handle = list(self.handles.keys())[i]
+            self.prev_pos = x,y
+            return
+        # on mouse drag
+        if not self.line:
+            start = self.mouse_press_pos
+            self.line = Line([start, (x,y)])
+            self.line.line_width = toolsettings['line_width']
+            self.line.color = toolsettings['color']
+            App.paper.addObject(self.line)
+
+        self.line.points[-1] = (x,y)
+        self.line.draw()
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(*self.mouse_press_pos)
+            return
+        if self.line:
+            self.create_handles(self.line)
+        self.reset()
+        App.paper.save_state_to_undo_stack("Add Line")
+
+    def on_mouse_click(self, x,y):
+        if focused:=App.paper.focused_obj:
+            if focused.class_name=="Line":
+                self.create_handles(focused)
+                return
+            else:
+                self.parent.on_object_clicked(focused)# switch mode to another shape
+                return
+        self.clear_handles()
+
+    def create_handles(self, line):
+        self.clear_handles()
+        r = max(line.line_width, 3)
+        for i,p in enumerate(line.points):
+            handle_item = App.paper.addEllipse([p[0]-r,p[1]-r,p[0]+r,p[1]+r],
+                        color=Color.black, fill=Color.cyan)
+            self.handles[handle_item] = [line, i]
+
+    def clear_handles(self):
+        for item in self.handles.keys():
+            App.paper.removeItem(item)
+        self.handles = {}
+        self.dragging_handle = None
+
+    def clear(self):
+        self.clear_handles()
+
+    #def remove_toolbar_actions(self):
+    #    App.window.remove_settingsbar_actions(self.toolbar_actions)
+    #    self.toolbar_actions.clear()
+
+
+
+class RectangleTool:
+    tips = {
+        "on_init": "Drag to draw a Rectangle; Hold Shift for Square",
+    }
+
+    def __init__(self):
+        self.reset()
+        self.handles = {}
+        App.window.showStatus(self.tips["on_init"])
+
+    def reset(self):
+        self.rect = None # newly created
+        self.dragging_handle = None
+        self.mouse_press_pos = None
+
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+        if (item:=App.paper.item_at(x,y)) and item in self.handles:
+            self.dragging_handle = item
+            self.prev_pos = x,y
+
+    def on_mouse_move(self, x,y):
+        if not App.paper.dragging:
+            return
+        if self.dragging_handle:
+            rect, i = self.handles[self.dragging_handle]
+            if App.paper.modifier_keys == set(["Shift"]):
+                p1_x, p1_y = rect.points[i-1]
+                w, h = x-p1_x, y-p1_y
+                l = max(w,h)
+                px, py = p1_x+l, p1_y+l
+            else:
+                px, py = rect.points[i]
+                px, py = px+(x-self.prev_pos[0]), py+(y-self.prev_pos[1])
+            rect.points[i] = (px, py)
+            rect.draw()
+            self.create_handles(rect)# redraw handles
+            self.dragging_handle = list(self.handles.keys())[i]
+            self.prev_pos = x,y
+            return
+        # on mouse drag
+        if not self.rect:
+            start = self.mouse_press_pos
+            if geo.point_distance(start, (x,y)) < 6:
+                return
+            self.rect = Rectangle([start, (x,y)])
+            self.rect.line_width = toolsettings['line_width']
+            self.rect.color = toolsettings['color']
+            self.rect.fill = toolsettings['fill']
+            #if self.rect.fill and toolsettings['opacity']!=100:
+            #    alpha = int(round(toolsettings['opacity']*255/100))
+            #    self.rect.color += (alpha,)
+            #    if self.rect.fill:
+            #        self.rect.fill += (alpha,)
+            App.paper.addObject(self.rect)
+
+        if App.paper.modifier_keys == set(["Shift"]):
+            p1_x, p1_y = self.rect.points[0]
+            w, h = x-p1_x, y-p1_y
+            l = max(abs(w),abs(h))
+            w = -l if w<0 else l
+            h = -l if h<0 else l
+            x, y = p1_x+w, p1_y+h
+        self.rect.points[-1] = (x,y)
+        self.rect.draw()
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(*self.mouse_press_pos)
+            return
+        if self.rect:
+            self.rect.normalize()
+            self.create_handles(self.rect)
+        # normalize rect
+        if self.handles:
+            rect, i = self.handles[list(self.handles.keys())[0]]
+            rect.normalize()
+            self.create_handles(rect)
+        self.reset()
+        App.paper.save_state_to_undo_stack("Add Rectangle")
+
+    def on_mouse_click(self, x,y):
+        if focused:=App.paper.focused_obj:
+            if focused.class_name=="Rectangle":
+                self.create_handles(focused)
+                return
+            else:
+                self.parent.on_object_clicked(focused)# switch mode to another shape
+                return
+        self.clear_handles()
+
+    def create_handles(self, rect):
+        self.clear_handles()
+        r = max(rect.line_width, 3)
+        for i,p in enumerate(rect.points):
+            handle_item = App.paper.addEllipse([p[0]-r,p[1]-r,p[0]+r,p[1]+r],
+                        color=Color.black, fill=Color.cyan)
+            self.handles[handle_item] = [rect, i]
+
+    def clear_handles(self):
+        for item in self.handles.keys():
+            App.paper.removeItem(item)
+        self.handles = {}
+        self.dragging_handle = None
+
+    def clear(self):
+        self.clear_handles()
+
+
+
+class EllipseTool:
+    tips = {
+        "on_init": "Drag to draw an Ellipse; Hold Shift for Circle",
+    }
+
+    def __init__(self):
+        self.reset()
+        self.handles = {}
+        App.window.showStatus(self.tips["on_init"])
+
+    def reset(self):
+        self.ellipse = None # newly created
+        self.dragging_handle = None
+        self.mouse_press_pos = None
+
+    def on_mouse_press(self, x,y):
+        self.mouse_press_pos = (x,y)
+        if (item:=App.paper.item_at(x,y)) and item in self.handles:
+            self.dragging_handle = item
+            self.prev_pos = x,y
+
+    def on_mouse_move(self, x,y):
+        if not App.paper.dragging:
+            return
+        if self.dragging_handle:
+            ellipse, i = self.handles[self.dragging_handle]
+            if App.paper.modifier_keys == set(["Shift"]):
+                p1_x, p1_y = ellipse.points[i-1]
+                w, h = x-p1_x, y-p1_y
+                l = max(w,h)
+                px, py = p1_x+l, p1_y+l
+            else:
+                px, py = ellipse.points[i]
+                px, py = px+(x-self.prev_pos[0]), py+(y-self.prev_pos[1])
+            ellipse.points[i] = (px, py)
+            ellipse.draw()
+            self.create_handles(ellipse)# redraw handles
+            self.dragging_handle = list(self.handles.keys())[i]
+            self.prev_pos = x,y
+            return
+        # on mouse drag
+        if not self.ellipse:
+            start = self.mouse_press_pos
+            if geo.point_distance(start, (x,y)) < 6:
+                return
+            self.ellipse = Ellipse([start, (x,y)])
+            self.ellipse.line_width = toolsettings['line_width']
+            self.ellipse.color = toolsettings['color']
+            self.ellipse.fill = toolsettings['fill']
+            #if self.ellipse.fill and toolsettings['opacity']!=100:
+            #    alpha = int(round(toolsettings['opacity']*255/100))
+            #    self.ellipse.color += (alpha,)
+            #    if self.ellipse.fill:
+            #        self.ellipse.fill += (alpha,)
+            App.paper.addObject(self.ellipse)
+
+        if App.paper.modifier_keys == set(["Shift"]):
+            p1_x, p1_y = self.ellipse.points[0]
+            w, h = x-p1_x, y-p1_y
+            l = max(abs(w),abs(h))
+            w = -l if w<0 else l
+            h = -l if h<0 else l
+            x, y = p1_x+w, p1_y+h
+        self.ellipse.points[-1] = (x,y)
+        self.ellipse.draw()
+
+    def on_mouse_release(self, x, y):
+        if not App.paper.dragging:
+            self.on_mouse_click(*self.mouse_press_pos)
+            return
+        if self.ellipse:
+            self.ellipse.normalize()
+            self.create_handles(self.ellipse)
+        # normalize ellipse rect
+        if self.handles:
+            ellipse, i = self.handles[list(self.handles.keys())[0]]
+            ellipse.normalize()
+            self.create_handles(ellipse)
+        self.reset()
+        App.paper.save_state_to_undo_stack("Add Ellipse")
+
+    def on_mouse_click(self, x,y):
+        if focused:=App.paper.focused_obj:
+            if focused.class_name=="Ellipse":
+                self.create_handles(focused)
+                return
+            else:
+                self.parent.on_object_clicked(focused)# switch mode to another shape
+                return
+        self.clear_handles()
+
+    def create_handles(self, ellipse):
+        self.clear_handles()
+        r = max(ellipse.line_width, 3)
+        for i,p in enumerate(ellipse.points):
+            handle_item = App.paper.addEllipse([p[0]-r,p[1]-r,p[0]+r,p[1]+r],
+                        color=Color.black, fill=Color.cyan)
+            self.handles[handle_item] = [ellipse, i]
+
+    def clear_handles(self):
+        for item in self.handles.keys():
+            App.paper.removeItem(item)
+        self.handles = {}
+        self.dragging_handle = None
+
+    def clear(self):
+        self.clear_handles()
+
+
+# ---------------------------- END SHAPE TOOL ---------------------------
 
 
 
@@ -2108,16 +2489,18 @@ tools_template = {
     "RadicalTool" : ("Add Radical", "radical"),
     "BracketTool" : ("Bracket Tool", "bracket-square"),
     "TextTool" : ("Write Text", "text"),
+    "ShapeTool" : ("Draw shapes", "shapes"),
     "ColorTool" : ("Color Tool", "color"),
 }
 
 # ordered tools that appears on toolbar
 toolbar_tools = ["MoveTool", "ScaleTool", "RotateTool", "AlignTool", "StructureTool",
     "PlusChargeTool", "MinusChargeTool", "LonepairTool",
-    "RadicalTool", "ArrowPlusTool", "BracketTool", "TextTool", "ColorTool"
+    "RadicalTool", "ArrowPlusTool", "BracketTool", "TextTool", "ShapeTool", "ColorTool"
 ]
 
-# in each settings mode, items will be shown in settings bar as same order as here
+# in each settings mode, items will be shown in settings bar as same order as here.
+# single quotes are used for settins keys and values, which makes easier to search
 settings_template = {
     "StructureTool" : [# mode
         ["ButtonGroup", "bond_angle",# key/category
@@ -2232,21 +2615,24 @@ settings_template = {
     ],
     "TextTool" : [
         ["Label", "Font : ", None],
-        ["FontComboBox", "font_name", []],
+        ["FontComboBox", 'font_name', []],
         ["Label", "Size : ", None],
-        ["SpinBox", "font_size", (6, 72)],
-        ["Button", "text", ("°", None)],
-        ["Button", "text", ("Δ", None)],
-        ["Button", "text", ("α", None)],
-        ["Button", "text", ("β", None)],
-        ["Button", "text", ("γ", None)],
-        ["Button", "text", ("δ", None)],
-        ["Button", "text", ("λ", None)],
-        ["Button", "text", ("μ", None)],
-        ["Button", "text", ("ν", None)],
-        ["Button", "text", ("π", None)],
-        ["Button", "text", ("σ", None)],
-        ["Button", "text", ("‡", None)],
+        ["SpinBox", 'font_size', (6, 72, 2)],
+    ],
+    "ShapeTool" : [
+        ["ButtonGroup", 'shape_type',
+            [('line', "Line", "bond"),
+            ('rectangle', "Rectangle", "rect"),
+            ('ellipse', "Ellipse", "ellipse"),
+        ]],
+        ["Label", "Width : ", None],
+        ["DoubleSpinBox", 'line_width', (1.0, 20, 0.5)],
+        ["Label", "Color : ", None],
+        ["ColorButton", 'color', None],
+        ["Label", "Fill : ", None],
+        ["FillColorButton", 'fill', None],
+        #["Label", "Opacity (%) : ", None],
+        #["SpinBox", 'opacity', (20,100,10)],
     ],
     "ColorTool" : [
         ["ButtonGroup", 'selection_mode',
@@ -2271,7 +2657,9 @@ class ToolSettings:
             "MinusChargeTool" : {'type': 'normal'},
             "LonepairTool" : {'type': 'dots'},
             "TextTool" : {'font_name': 'Sans Serif', 'font_size': Settings.text_size},
-            "ColorTool" : {'color': (240,2,17), 'color_index': 13, 'selection_mode': 'rectangular'},
+            "ShapeTool" : {'shape_type': 'rectangle', 'line_width': 2, 'color': (0,0,0),
+                            'fill': None, 'opacity': 100},
+            "ColorTool" : {'color': (240,2,17), 'selection_mode': 'rectangular'},
             "BracketTool" : {'bracket_type': 'square'},
         }
         self._scope = "StructureTool"

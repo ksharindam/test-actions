@@ -1,0 +1,993 @@
+# -*- coding: utf-8 -*-
+# This file is a part of ChemCanvas Program which is GNU GPLv3 licensed
+# Copyright (C) 2026 Arindam Chaudhuri <arindamsoft94@gmail.com>
+import os, re
+from functools import reduce
+import operator
+
+from PyQt5.QtCore import QRectF, Qt, QPointF, QMarginsF, pyqtSignal, QSize, QSettings
+from PyQt5.QtGui import (QPainter, QColor, QPen, QBrush, QPixmap, QIcon,
+    QTextDocument, QTextOption, QPdfWriter, QFont, QPainterPath, QTransform, QPageSize)
+from PyQt5.QtWidgets import (QDialog, QToolBar, QVBoxLayout, QAction, QWidget,
+    QGridLayout, QDialogButtonBox, QLabel, QLineEdit, QCheckBox, QPushButton,
+    QGraphicsView, QGraphicsScene, QGraphicsTextItem, QGraphicsRectItem,
+    QStyleOptionGraphicsItem, QGraphicsItemGroup, QFileDialog, QStatusBar,
+    QDoubleSpinBox, QHBoxLayout, QSpacerItem, QToolButton, QComboBox, QFontComboBox,
+    QGraphicsPathItem, QGraphicsPixmapItem)
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
+
+
+class LabelPrintDialog(QDialog):
+    def __init__(self):
+        QDialog.__init__(self)
+        self.setWindowTitle("Print Chemical Label")
+        self.setWindowIcon(QIcon(":/icons/reagent.png"))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6,0,0,0)
+        toolbar = QToolBar()
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        toolbar.setIconSize(QSize(24,24))
+        layout.setMenuBar(toolbar)
+        self.savePdfAction = QAction(QIcon(":/icons/pdf.png"), "Save PDF", self)
+        toolbar.addAction(self.savePdfAction)
+        self.printAction = QAction(QIcon(":/icons/print.png"), "Print", self)
+        self.printAction.setToolTip("Print [Ctrl+P]")
+        self.printAction.setShortcut("Ctrl+P")
+        toolbar.addAction(self.printAction)
+        toolbar.addSeparator()
+        self.newLabelAction = QAction(QIcon(":/icons/new-file.png"), "New", self)
+        self.newLabelAction.setToolTip("New [Insert]")
+        self.newLabelAction.setShortcut("Insert")
+        toolbar.addAction(self.newLabelAction)
+        self.duplicateLabelAction = QAction(QIcon(":/icons/copy.png"), "Duplicate", self)
+        self.duplicateLabelAction.setToolTip("Duplicate [Ctrl+D]")
+        self.duplicateLabelAction.setShortcut("Ctrl+D")
+        toolbar.addAction(self.duplicateLabelAction)
+        self.editLabelAction = QAction(QIcon(":/icons/edit.png"), "Edit", self)
+        toolbar.addAction(self.editLabelAction)
+        self.deleteLabelAction = QAction(QIcon(":/icons/delete.png"), "Delete", self)
+        self.deleteLabelAction.setToolTip("Delete [Delete]")
+        self.deleteLabelAction.setShortcut("Delete")
+        toolbar.addAction(self.deleteLabelAction)
+        self.settingsAction = QAction(QIcon(":/icons/settings.png"), "Settings", self)
+        toolbar.addAction(self.settingsAction)
+        toolbar.addSeparator()
+        self.closeAction = QAction(QIcon(":/icons/quit.png"), "Close", self)
+        self.closeAction.setToolTip("Close [Esc]")
+        toolbar.addAction(self.closeAction)
+        spacer = QWidget(toolbar)
+        spacer.setSizePolicy(1|2|4,1|4)
+        toolbar.addWidget(spacer)
+        self.statusWidget = QLabel(toolbar)
+        self.statusWidget.setAlignment(Qt.AlignVCenter|Qt.AlignRight)
+        toolbar.addWidget(self.statusWidget)
+        # setup graphics view
+        self.graphicsView = QGraphicsView(self)
+        self.graphicsView.setMouseTracking(True)
+        self.graphicsView.setBackgroundBrush(Qt.gray)
+        self.graphicsView.setAlignment(Qt.AlignHCenter|Qt.AlignVCenter)
+        # this improves drawing speed
+        self.graphicsView.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
+        # makes small circles and objects smoother
+        self.graphicsView.setRenderHint(QPainter.Antialiasing, True)
+        self.paper = LabelPaper(self.graphicsView)
+        # layout widgets
+        layout.addWidget(self.graphicsView)
+        # disable edit, delete, duplicate buttons
+        self.onSelectionChange()
+        # connect signals
+        self.paper.statusMessageChanged.connect(self.showMessage)
+        self.paper.selectionChanged.connect(self.onSelectionChange)
+        self.savePdfAction.triggered.connect(self.savePdf)
+        self.printAction.triggered.connect(self.printLabel)
+        self.newLabelAction.triggered.connect(self.newLabel)
+        self.editLabelAction.triggered.connect(self.editLabel)
+        self.duplicateLabelAction.triggered.connect(self.paper.duplicateLabel)
+        self.deleteLabelAction.triggered.connect(self.paper.deleteLabel)
+        self.settingsAction.triggered.connect(self.openSettings)
+        self.closeAction.triggered.connect(self.accept)
+        # start
+        self.loadSettings()
+        self.paper.updateStatus()
+
+
+    def loadSettings(self):
+        """ load settings """
+        self.settings = QSettings("chemcanvas", "chemcanvas", self)
+        self.settings.beginGroup("ReagentLabelTool")
+        # label settings
+        label_w = float(self.settings.value("LabelW", 5.0))
+        label_h = float(self.settings.value("LabelH", 2.5))
+        self.label_size = (label_w, label_h) # cm
+        self.border_w = float(self.settings.value("BorderW", 0.3)) # mm
+        self.border_rounded = self.settings.value("BorderRounded", "false")=="true"
+        self.heading_font = QFont(self.settings.value("HeadingFont", "DejaVu Serif"))
+        self.body_font = QFont(self.settings.value("BodyFont", "DejaVu Serif"))
+        self.formula_mode = self.settings.value("FormulaMode", "heading")# heading|body|none
+        # page settings
+        self.paper.page_size_name = self.settings.value("PageSize", "A4")
+        custom_w = float(self.settings.value("CustomPageW", 21.0))
+        custom_h = float(self.settings.value("CustomPageH", 29.7))
+        self.paper.custom_size = (custom_w, custom_h)
+        self.paper.margin = float(self.settings.value("PageMargin", 3.0))
+        self.paper.spacing = float(self.settings.value("Spacing", 1.2))
+        self.paper.updatePageSize()
+        # window settings
+        window_w = int(self.settings.value("WindowWidth", 900))
+        window_h = int(self.settings.value("WindowHeight", 600))
+        self.resize(window_w, window_h)
+        self.settings.endGroup()
+
+    def saveSettings(self):
+        """ save settings """
+        self.settings.beginGroup("ReagentLabelTool")
+        # label settings
+        self.settings.setValue("LabelW", self.label_size[0])
+        self.settings.setValue("LabelH", self.label_size[1])
+        self.settings.setValue("BorderW", self.border_w)
+        self.settings.setValue("BorderRounded", self.border_rounded)
+        self.settings.setValue("HeadingFont", self.heading_font.family())
+        self.settings.setValue("BodyFont", self.body_font.family())
+        self.settings.setValue("FormulaMode", self.formula_mode)# heading|body|none
+        # page settings
+        self.settings.setValue("PageSize", self.paper.page_size_name)
+        self.settings.setValue("CustomPageW", self.paper.custom_size[0])
+        self.settings.setValue("CustomPageH", self.paper.custom_size[1])
+        self.settings.setValue("PageMargin", self.paper.margin)
+        self.settings.setValue("Spacing", self.paper.spacing)
+        # window settings
+        self.settings.setValue("WindowWidth", self.width())
+        self.settings.setValue("WindowHeight", self.height())
+        self.settings.endGroup()
+
+
+    def newLabel(self):
+        # create empty label with previous properties
+        label = Label()
+        label.size = self.label_size
+        label.border_w = self.border_w
+        label.border_rounded = self.border_rounded
+        label.heading_font = self.heading_font
+        label.body_font = self.body_font
+        label.formula_mode = self.formula_mode
+
+        dlg = LabelEditor(label, self)
+        dlg.setWindowTitle("New Label")
+        if dlg.exec()==dlg.Accepted:
+            label.setItems(dlg.items)
+            self.paper.addLabel(label)
+            if self.paper.selected:# select new only if something was selected before
+                self.paper.selectLabel(label)
+            self.label_size = label.size
+            self.border_w = label.border_w
+            self.border_rounded = label.border_rounded
+            self.heading_font = label.heading_font
+            self.body_font = label.body_font
+            self.formula_mode = label.formula_mode
+
+    def editLabel(self):
+        label = self.paper.selected
+        dlg = LabelEditor(label, self)
+        if dlg.exec()==dlg.Accepted:
+            bbox = label.boundingBox()
+            self.paper.removeItem(label.root_item)
+            label.setItems(dlg.items)
+            self.paper.addItem(label.root_item)
+            label.setPos(bbox.x(), bbox.y())
+
+    def openSettings(self):
+        dlg = SettingsDialog(self)
+        dlg.setValues(self.paper.page_size_name, self.paper.custom_size,
+                    self.paper.margin, self.paper.spacing)
+        if dlg.exec()==QDialog.Accepted:
+            page_size, custom_size, margin, spacing = dlg.getValues()
+            margin_changed = margin!=self.paper.margin
+            spacing_changed = spacing!=self.paper.spacing
+            self.paper.page_size_name = page_size
+            self.paper.custom_size = custom_size
+            self.paper.margin = margin
+            self.paper.spacing = spacing
+            page_size_changed = self.paper.updatePageSize()
+            if any([margin_changed, spacing_changed, page_size_changed]):
+                self.paper.reposition_labels()
+
+    def savePdf(self):
+        path = self.get_new_filename("label.pdf")
+        filename, filtr = QFileDialog.getSaveFileName(self, "Save File",
+                        path, "Portable Document Format (*.pdf)")
+        if not filename:
+            return
+        self.paper.selectLabel(None)
+        writer = QPdfWriter(filename)
+        page_w = self.paper.page_size[0]
+        page_h = self.paper.page_size[1]
+        writer.setPageSize(QPageSize(QSize(page_w, page_h)))
+        writer.setCreator("ChemCanvas")
+        writer.setTitle("ChemCanvas Chemical Label")
+        layout = writer.pageLayout()
+        layout.setMargins(QMarginsF(0, 0, 0, 0))
+        writer.setPageLayout(layout)
+
+        painter = QPainter(writer)
+        self.paper.render(painter)
+        painter.end()
+
+
+    def printLabel(self):
+        printer = QPrinter(QPrinter.HighResolution)
+        dlg = QPrintDialog(printer, self)
+        # disable some options (PrintSelection, PrintCurrentPage are disabled by default)
+        dlg.setOption(QPrintDialog.PrintPageRange, False)
+        dlg.setOption(QPrintDialog.PrintCollateCopies, False)
+        # in unix systems QPrintDialog may fail to set paper size.As most
+        # printers use centered paper tray. we should draw the page on top center.
+        if dlg.exec() == QDialog.Accepted:
+            self.paper.selectLabel(None)
+            self.paper.focusLabel(None)
+            # input page size @ printer dpi
+            page_w_px = int(printer.physicalDpiX()*self.paper.page_size[0]/72)
+            page_h_px = int(printer.physicalDpiY()*self.paper.page_size[1]/72)
+            paper_size = printer.paperSize(QPrinter.DevicePixel)
+            paper_w, paper_h = paper_size.width(), paper_size.height()
+            margins = printer.getPageMargins(QPrinter.DevicePixel)
+            painter = QPainter(printer)
+            # position the page on top-center
+            transform = QTransform()
+            transform.translate((paper_w-page_w_px)//2-margins[0], -margins[1])
+            # QGraphicsScene.render() fits scene rect to painter viewport
+            # we have to use inverse of that scale, to get 100 % scaling
+            rect = painter.viewport()# area inside margin, (topLeft is always (0,0))
+            scale = max(page_w_px/rect.width(), page_h_px/rect.height())
+            transform.scale(scale, scale)
+            painter.setTransform(transform)
+            self.paper.render(painter)
+            painter.end()
+
+
+    def get_new_filename(self, filename):
+        """ get a new filename with number suffix if filename already exists """
+        basename, ext = os.path.splitext(filename)# ext includes dot
+        path = filename
+        i = 1
+        while os.path.exists(path):
+            path = "%s-%i%s" % (basename, i, ext)
+            i += 1
+        return path
+
+    def showMessage(self, msg):
+        self.statusWidget.setText(msg)
+
+    def onSelectionChange(self):
+        for btn in (self.duplicateLabelAction, self.editLabelAction, self.deleteLabelAction):
+            btn.setEnabled(bool(self.paper.selected))
+
+    def done(self, result):
+        self.saveSettings()
+        QDialog.done(self, result)
+
+
+class LabelPaper(QGraphicsScene):
+    """ The canvas on which all items are drawn """
+    statusMessageChanged = pyqtSignal(str)
+    selectionChanged = pyqtSignal()
+    def __init__(self, view):
+        QGraphicsScene.__init__(self, view)
+        self.view = view
+        view.setScene(self)
+        self.page_size_name = "A4"
+        self.custom_size = (21.0,29.7)# cm
+        self.page_size = (595,842)# points
+        self.page_w, self.page_h = 826, 1169 # px @100dpi
+        self.margin = 3.0 # mm
+        self.spacing = 1.2 # mm
+        self.labels = []
+        self.mouse_press_pos = None # val becomes None after mouse release
+        self.focused = None
+        self.selected = None
+        self.mode = None
+        self.paper = None
+        self.updatePageSize()
+
+    def updatePageSize(self):
+        """ returns true if page size changed """
+        custom_w = int(round(self.custom_size[0]/2.54*72))
+        custom_h = int(round(self.custom_size[1]/2.54*72))
+        page_sizes = {"A4": (595,842), "A5": (420,595), "A6": (298,420),
+                        "A7": (210,298), "4R": (288,432), "L": (252,360),
+                        "Letter":(612,792), "Custom": (custom_w, custom_h)}
+        page_size = page_sizes[self.page_size_name]
+        if self.paper and page_size == self.page_size:
+            return False
+        self.page_size = page_size
+        self.page_w = self.page_size[0]/72*100
+        self.page_h = self.page_size[1]/72*100
+        self.setSceneRect(0,0, self.page_w, self.page_h)
+        if not self.paper:
+            self.paper = self.addRect(self.sceneRect(), Qt.white, Qt.white)
+        else:
+            self.paper.setRect(self.sceneRect())
+        self.updateStatus()
+        return True
+
+
+    def addLabel(self, label):
+        label.paper = self
+        self.addItem(label.root_item)
+        # place label in empty position
+        bbox = label.boundingBox()
+        x,y = self.find_position(bbox.width(), bbox.height())
+        label.setPos(x,y)
+        self.labels.append(label)
+
+    def deleteLabel(self):
+        label = self.selected
+        self.selectLabel(None)
+        self.focusLabel(None)
+        self.removeItem(label.root_item)
+        if label.drag_item:
+            self.removeItem(label.drag_item)
+        self.labels.remove(label)
+
+    def duplicateLabel(self):
+        new_label = self.selected.duplicate()
+        new_label.root_item.setScale(self.selected.root_item.scale())
+        self.addLabel(new_label)
+
+    def focusLabel(self, label):
+        if label == self.focused:
+            return
+        if self.focused:
+            self.focused.setFocused(False)
+        if label:
+            label.setFocused(True)
+        self.focused = label
+
+    def selectLabel(self, label):
+        if label==self.selected:
+            return
+        if self.selected:
+            self.selected.setSelected(False)
+        if label:
+            label.setSelected(True)
+        self.selected = label
+        self.updateStatus()
+        self.selectionChanged.emit()
+
+
+    def object_at(self, pos):
+        objs = [item.object for item in self.items(pos) if hasattr(item,"object")]
+        return objs[0] if objs else None
+
+    def mousePressEvent(self, ev):
+        if ev.button() != Qt.LeftButton:
+            return QGraphicsScene.mousePressEvent(self, ev)
+        pos = ev.scenePos()
+        self.mouse_press_pos = pos
+        self.prev_pos = pos
+        obj = self.object_at(pos)
+        if obj:
+            self.selectLabel(obj)
+            if obj.draggingCorner(pos):
+                self.mode = "resize"
+                self.obj_rect = obj.boundingBox()
+            else:
+                self.mode = "move"
+        else:
+            self.selectLabel(None)
+        QGraphicsScene.mousePressEvent(self, ev)
+
+
+    def mouseMoveEvent(self, ev):
+        pos = ev.scenePos()
+        if self.mode=="move":
+            diff = pos - self.prev_pos
+            bbox = self.focused.boundingBox()
+            new_pos = bbox.topLeft() + diff
+            margin = self.margin/25.4*100
+            x = min(max(margin, new_pos.x()), self.page_w-margin-bbox.width())
+            y = min(max(margin, new_pos.y()), self.page_h-margin-bbox.height())
+            self.focused.setPos(x,y)
+            self.prev_pos = pos
+        elif self.mode=="resize":
+            diff = pos - self.mouse_press_pos
+            rect = self.obj_rect.adjusted(0,0,diff.x(),diff.y())
+            self.focused.scaleToFit(rect.width(), rect.height())
+            self.updateStatus()
+        elif self.mouse_press_pos==None:
+            self.focusLabel( self.object_at(pos) )
+        QGraphicsScene.mouseMoveEvent(self, ev)
+
+
+    def mouseReleaseEvent(self, ev):
+        self.mouse_press_pos = None
+        self.mode = None
+        QGraphicsScene.mouseReleaseEvent(self, ev)
+
+
+    def updateStatus(self):
+        msg = ""
+        if self.selected:
+            msg = "Label : %.1fx%.1fcm ;  " % self.selected.scaled_size
+        page_size = self.page_size_name
+        if page_size == "Custom":
+            page_size = "%gx%gcm" % self.custom_size
+        msg += "Page : %s" % page_size
+        self.statusMessageChanged.emit(msg)
+
+    def reposition_labels(self):
+        labels = self.labels[:]
+        self.labels.clear()
+        for label in labels:
+            bbox = label.boundingBox()
+            x,y = self.find_position(bbox.width(), bbox.height())
+            label.setPos(x,y)
+            self.labels.append(label)
+
+
+    def find_position(self, w, h):
+        spacing, margin = self.spacing/25.4*100, self.margin/25.4*100
+        if not self.labels:
+            return margin, margin
+        # get lowest label
+        rects = [label.boundingBox() for label in self.labels]
+        rects.sort(key=lambda r:r.bottom())
+        # get last row by getting labels along the center of the lowest label
+        cy = rects[-1].center().y()
+        lowest_rects = [rect for rect in rects if rect.top()<cy and rect.bottom()>cy]
+        lowest_rects.sort(key=lambda l:l.right())# rightmost in last row
+        # if does not fit in same line, place in next row
+        if self.page_w - lowest_rects[-1].right() < w+spacing+margin:
+            lowest_rects.sort(key=lambda l:l.bottom())
+            y = lowest_rects[-1].bottom() + spacing
+            x = margin
+            if y>self.page_h-h:
+                y = self.page_h-h-margin
+            return x,y
+        # place in same line
+        pos = lowest_rects[-1].topRight() + QPointF(spacing,0)
+        return pos.x(), pos.y()
+
+
+
+class Label:
+    def __init__(self):
+        # data
+        self.heading = ""
+        self.body = ""
+        self.image_filename = ""
+        self.image = None
+        self.symbols = []# hazard symbols
+        # settings
+        self.size = None # (width,height) in cm (original size, unscaled)
+        self.border_w = 1.0 #mm
+        self.border_rounded = False
+        self.heading_font = None
+        self.body_font = None
+        self.formula_mode = "heading" # heading|body|none
+        # others
+        self.paper = None
+        self.items = []
+        self.root_item = None
+        self.is_selected = False
+        self.drag_item = None
+
+    @property
+    def scaled_size(self):
+        """ returns visible size on paper in cm """
+        if not self.items:
+            return self.size
+        rect = self.boundingBox()
+        w = round(2.54*rect.width()/100, 1)
+        h = round(2.54*rect.height()/100, 1)
+        return w, h
+
+    def setItems(self, items):
+        self.items = items
+        group = QGraphicsItemGroup()
+        for item in self.items:
+            group.addToGroup(item)
+        group.object = self
+        self.root_item = group
+        self.setSelected(self.is_selected)
+
+
+    def boundingBox(self):
+        return self.root_item.sceneBoundingRect()
+
+    def setPos(self, x, y):
+        self.root_item.setPos(x,y)
+        if self.drag_item:
+            self.update_drag_item_pos()
+
+    def scaleToFit(self, w, h):
+        orig_w = 100 * self.size[0]/2.54
+        orig_h = 100 * self.size[1]/2.54
+        scale = min(w/orig_w, h/orig_h)
+        self.root_item.resetTransform()
+        self.root_item.setScale(scale)
+        self.update_drag_item_pos()
+
+
+    def draggingCorner(self, pos):
+        if self.drag_item:
+            return self.drag_item.sceneBoundingRect().contains(pos)
+        return False
+
+    def update_drag_item_pos(self):
+        bbox = self.drag_item.sceneBoundingRect()
+        self.drag_item.setPos(self.boundingBox().bottomRight()
+                            - QPointF(bbox.width(),bbox.height()))
+
+    def setFocused(self, focus):
+        if focus:
+            self.drag_item = self.paper.addPixmap(QPixmap(":/icons/drag.png"))
+            self.update_drag_item_pos()
+        elif self.drag_item:
+            self.paper.removeItem(self.drag_item)
+            self.drag_item = None
+
+    def setSelected(self, select):
+        brush = QBrush(QColor(200,200,255)) if select else Qt.white # use QColor(255,255,150) for yellow
+        self.items[0].setBrush(brush)
+        self.is_selected = select
+
+
+    def duplicate(self):
+        label = Label()
+        # duplicate attributes
+        for attr in ("heading", "body", "image_filename", "image", "symbols", "size",
+                "border_w", "border_rounded", "heading_font", "body_font", "formula_mode"):
+            setattr(label, attr, getattr(self, attr))
+        # duplicate items
+        new_items = []
+        for item in self.items:
+            if isinstance(item, QGraphicsPathItem):
+                new_item = QGraphicsPathItem()
+                new_item.setPath(item.path())
+                new_item.setPen(item.pen())
+                new_item.setBrush(item.brush())
+            elif isinstance(item, QGraphicsTextItem):
+                new_item = QGraphicsTextItem()
+                new_item.setDocument(item.document())
+            elif isinstance(item, QGraphicsPixmapItem):
+                new_item = QGraphicsPixmapItem()
+                new_item.setPixmap(item.pixmap())
+            else:
+                raise ValueError("Cannot copy unknown graphics item %s" % str(item))
+            new_item.setPos(item.pos())
+            new_item.setScale(item.scale())
+            #new_item.setRotation(item.rotation())
+            new_items.append(new_item)
+        label.setItems(new_items)
+        return label
+
+
+
+class LabelEditor(QDialog):
+    def __init__(self, label, parent):
+        QDialog.__init__(self, parent)
+        self.setWindowTitle("Edit Label")
+        self.setWindowIcon(QIcon(":/icons/new-file.png"))
+        self.resize(500,150)
+        layout = QGridLayout(self)
+        # size properties
+        self.propertiesWidget = QWidget(self)
+        self.widthLabel = QLabel("Size (cm) :", self.propertiesWidget)
+        self.widthSpin = QDoubleSpinBox(self.propertiesWidget)
+        self.widthSpin.setRange(1.0,15.0)
+        self.widthSpin.setDecimals(1)
+        self.widthSpin.setSingleStep(0.5)
+        self.heightLabel = QLabel("x", self.propertiesWidget)
+        self.heightSpin = QDoubleSpinBox(self.propertiesWidget)
+        self.heightSpin.setRange(1.0,10.0)
+        self.heightSpin.setDecimals(1)
+        self.heightSpin.setSingleStep(0.5)
+        propertiesLayout = QHBoxLayout(self.propertiesWidget)
+        propertiesLayout.setContentsMargins(0,0,0,0)
+        for widget in (self.widthLabel, self.widthSpin, self.heightLabel, self.heightSpin):
+            propertiesLayout.addWidget(widget)
+        propertiesLayout.addStretch()
+        # border properties
+        self.borderLabel = QLabel("Border :", self.propertiesWidget)
+        self.borderWidthSpin = QDoubleSpinBox(self.propertiesWidget)
+        self.borderWidthSpin.setRange(0.3, 3.0)
+        self.borderWidthSpin.setDecimals(1)
+        self.borderWidthSpin.setSingleStep(0.1)
+        self.borderWidthSpin.setSuffix(" mm")
+        self.roundedBorderBtn = QCheckBox("Rounded Corner", self.propertiesWidget)
+        for widget in (self.borderLabel, self.borderWidthSpin, self.roundedBorderBtn):
+            propertiesLayout.addWidget(widget)
+        # fonts
+        self.fontWidget = QWidget(self)
+        self.fontLabel = QLabel("Font :", self.fontWidget)
+        self.headingFontCombo = QFontComboBox(self.fontWidget)
+        self.bodyFontCombo = QFontComboBox(self.fontWidget)
+        fontLayout = QHBoxLayout(self.fontWidget)
+        fontLayout.setContentsMargins(0,0,0,0)
+        for widget in (self.fontLabel, self.headingFontCombo, self.bodyFontCombo):
+            fontLayout.addWidget(widget)
+        self.fontWidget.setVisible(False)
+        # create contents widget
+        self.contentsWidget = QWidget(self)
+        self.structureFileEdit = QLineEdit(self)
+        self.structureFileEdit.setPlaceholderText("Structure / Image")
+        self.structureFileEdit.setReadOnly(True)
+        self.structureChooserBtn = QPushButton("Choose", self)
+        self.headingEdit = QLineEdit(self)
+        self.headingEdit.setPlaceholderText("Heading / Formula")
+        self.headingFormulaBtn = QCheckBox("Formula", self)
+        self.bodyEdit = QLineEdit(self)
+        self.bodyEdit.setPlaceholderText("Body / Formula")
+        self.bodyFormulaBtn = QCheckBox("Formula", self)
+        contentsLayout = QGridLayout(self.contentsWidget)
+        for i,widget in enumerate([self.structureFileEdit, self.structureChooserBtn,
+            self.headingEdit, self.headingFormulaBtn, self.bodyEdit, self.bodyFormulaBtn]):
+                contentsLayout.addWidget(widget, i//2, i%2, 1, 1)
+        # hazard symbols
+        self.hazardWidget = QWidget(self)
+        hazardLayout = QHBoxLayout(self.hazardWidget)
+        hazardLayout.setContentsMargins(0,0,0,0)
+        #hazardLayout.addStretch()
+        ghs_symbols = ["Explosive", "Flammable", "Oxidising", "Corrosive",
+                    "Toxic", "Irritant", "Health-Hazard", "Environmental-Hazard"]
+        self.ghs_btns = {}
+        for symbol in ghs_symbols:
+            btn = QToolButton(self.hazardWidget)
+            btn.setCheckable(True)
+            btn.setToolTip(symbol)
+            btn.setIconSize(QSize(32,32))
+            btn.setIcon(QIcon(":/hazard-symbols/%s.png"%symbol.lower()))
+            hazardLayout.addWidget(btn)
+            self.ghs_btns[symbol] = btn
+        hazardLayout.addStretch()
+        # others
+        self.settingsBtn = QToolButton(self)
+        self.settingsBtn.setCheckable(True)
+        self.settingsBtn.setIconSize(QSize(24,24))
+        self.settingsBtn.setIcon(QIcon(":/icons/settings.png"))
+        hazardLayout.addWidget(self.settingsBtn)
+        self.btnBox = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel, parent=self)
+        #self.btnBox.addButton("Add", QDialogButtonBox.AcceptRole)
+        self.preview = QLabel(self)
+        # layout widgets
+        layout.addWidget(self.propertiesWidget, 0,0,1,2)
+        layout.addWidget(self.preview, 1,0,1,1)
+        layout.addWidget(self.contentsWidget, 1,1,1,1)
+        layout.addWidget(self.hazardWidget, 2,0,1,2)
+        layout.addWidget(self.fontWidget, 3,0,1,2)
+        layout.addWidget(self.btnBox, 4,0,1,2)
+        # initialize values
+        self.widthSpin.setValue(label.scaled_size[0])
+        self.heightSpin.setValue(label.scaled_size[1])
+        self.borderWidthSpin.setValue(label.border_w)
+        self.roundedBorderBtn.setChecked(label.border_rounded)
+        self.headingFontCombo.setCurrentFont(label.heading_font)
+        self.bodyFontCombo.setCurrentFont(label.body_font)
+        self.headingFormulaBtn.setChecked(label.formula_mode == "heading")
+        self.bodyFormulaBtn.setChecked(label.formula_mode == "body")
+        self.headingEdit.setText(label.heading)
+        self.bodyEdit.setText(label.body)
+        self.structure_filename = label.image_filename
+        self.structure = label.image
+        self.structureFileEdit.setText(os.path.basename(self.structure_filename))
+        self.select_GHS_symbols(label.symbols)
+        self.label = label
+        self.items = []
+        # connect signals
+        for spinbox in (self.widthSpin, self.heightSpin, self.borderWidthSpin):
+            spinbox.valueChanged.connect(self.showPreview)
+        self.roundedBorderBtn.clicked.connect(self.showPreview)
+        self.headingFontCombo.currentFontChanged.connect(self.showPreview)
+        self.bodyFontCombo.currentFontChanged.connect(self.showPreview)
+        self.structureChooserBtn.clicked.connect(self.chooseStructure)
+        self.headingFormulaBtn.clicked.connect(self.setHeadingFormula)
+        self.bodyFormulaBtn.clicked.connect(self.setSubheadingFormula)
+        self.headingEdit.textEdited.connect(self.onTextEdit)
+        self.bodyEdit.textEdited.connect(self.showPreview)
+        for btn in self.ghs_btns.values():
+            btn.clicked.connect(self.showPreview)
+        self.settingsBtn.clicked.connect(self.toggleSettings)
+        self.btnBox.accepted.connect(self.accept)
+        self.btnBox.rejected.connect(self.reject)
+        # show
+        self.headingEdit.setFocus()
+        self.showPreview()
+
+
+    def chooseStructure(self):
+        filename, filtr = QFileDialog.getOpenFileName(self, "Choose Image", None,
+                        "Image Files (*.png *.jpg *.jpeg *.webp)")
+        if not filename:
+            return False
+        self.structure_filename = filename
+        self.structure = QPixmap(filename)
+        self.structureFileEdit.setText(os.path.basename(filename))
+        self.showPreview()
+
+    def setHeadingFormula(self, checked):
+        if checked:
+            self.bodyFormulaBtn.setChecked(False)
+        self.showPreview()
+
+    def setSubheadingFormula(self, checked):
+        if checked:
+            self.headingFormulaBtn.setChecked(False)
+        self.showPreview()
+
+    def onTextEdit(self):
+        self.showPreview()
+
+    def toggleSettings(self, checked):
+        self.fontWidget.setVisible(checked)
+
+    def get_selected_GHS_symbols(self):
+        selected = []
+        for name, btn in self.ghs_btns.items():
+            if btn.isChecked():
+                selected.append(name.lower())
+        return selected
+
+    def select_GHS_symbols(self, selected):
+        for name, btn in self.ghs_btns.items():
+            if name.lower() in selected:
+                btn.setChecked(True)
+
+    def showPreview(self):
+        formula = None
+        heading = self.headingEdit.text()
+        body = self.bodyEdit.text()
+        w = int(round(self.widthSpin.value()/0.0254)) # cm to px @100 dpi
+        h = int(round(self.heightSpin.value()/0.0254)) # cm to px @100 dpi
+        border_w = self.borderWidthSpin.value()/0.254 # mm to px @100 dpi
+        cont_w = w - 2*border_w # text contents width
+        cont_h = h - 2*border_w
+        # generate textitems and calculate size
+        # background
+        rect = border_w/2, border_w/2, w-border_w, h-border_w
+        path = QPainterPath()
+        if self.roundedBorderBtn.isChecked():
+            path.addRoundedRect(*rect, 15,15)
+        else:
+            path.addRect(*rect)
+        bg = QGraphicsPathItem(path)
+        pen = QPen(Qt.black, border_w)
+        pen.setJoinStyle(Qt.MiterJoin)# sharp corner
+        bg.setPen(pen)
+        bg.setBrush(Qt.white)
+        # structure image and ghs pictograms
+        structure_h = cont_h//3 if self.structure else 0
+        ghs_symbols = self.get_selected_GHS_symbols()
+        ghs_h = cont_h//4 if ghs_symbols else 0
+        # text area
+        txt_area_w = cont_w
+        txt_area_h = cont_h - structure_h - ghs_h
+        self.items = []
+        if self.structure:
+            item = QGraphicsPixmapItem(self.structure)
+            item.setTransformationMode(Qt.SmoothTransformation)
+            item.setScale(structure_h/self.structure.height())
+            item.moveBy(border_w + (cont_w - item.sceneBoundingRect().width())/2, 0)# align center
+            self.items.append(item)
+        if heading:
+            content = to_html(heading, self.headingFormulaBtn.isChecked())
+            font = self.headingFontCombo.currentFont()
+            item = get_text_item(content, w, font, int(txt_area_h//3))
+            self.items.append(item)
+        if body:
+            content = to_html(body, self.bodyFormulaBtn.isChecked())
+            font = self.bodyFontCombo.currentFont()
+            # body font must be smaller than heading font
+            font_size = min(item.font().pixelSize()-1, txt_area_h//6) if heading else txt_area_h//6
+            item = get_text_item(content, w, font, int(font_size))
+            self.items.append(item)
+        if ghs_symbols:
+            pms = [QPixmap(":/hazard-symbols/%s.png"%sym) for sym in ghs_symbols]
+            l = pms[0].width()
+            ghs_pm = QPixmap(l*len(ghs_symbols), l)
+            ghs_pm.fill(Qt.transparent)
+            painter = QPainter(ghs_pm)
+            for i, pm in enumerate(pms):
+                painter.drawPixmap(i*l, 0, pm)
+            painter.end()
+            item = QGraphicsPixmapItem(ghs_pm)
+            item.setTransformationMode(Qt.SmoothTransformation)
+            item.setScale(ghs_h/ghs_pm.height())
+            item.moveBy(border_w + (cont_w - item.sceneBoundingRect().width())/2, 0)
+            self.items.append(item)
+        # draw
+        heights = [item.sceneBoundingRect().height() for item in self.items]
+        total_h = reduce(operator.add, heights, 0)
+        spacing = (cont_h-total_h)//(len(self.items)+1)
+        pm = QPixmap(w,h)
+        pm.fill()
+        painter = QPainter(pm)
+        #painter.setRenderHint(QPainter.Antialiasing)
+        opt = QStyleOptionGraphicsItem()
+        bg.paint(painter, opt, None)
+        y = border_w + spacing
+        for item in self.items:
+            item.moveBy(0,y)
+            painter.setTransform(item.sceneTransform(), True)
+            item.paint(painter, opt, None)
+            painter.resetTransform()
+            y += item.sceneBoundingRect().height() + spacing
+        painter.end()
+        self.items.insert(0, bg)
+
+        if pm.width()>200 or pm.height()>100:
+            pm = pm.scaled(200,100,Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.preview.setPixmap(pm)
+        self.label_size = w, h
+
+
+    def accept(self):
+        # do not close dialog if empty
+        if not (self.headingEdit.text() or self.bodyEdit.text()):
+            return
+        # settings
+        self.label.size = (self.widthSpin.value(), self.heightSpin.value())
+        self.label.border_w = self.borderWidthSpin.value()
+        self.label.border_rounded = self.roundedBorderBtn.isChecked()
+        self.label.heading_font = self.headingFontCombo.currentFont()
+        self.label.body_font = self.bodyFontCombo.currentFont()
+        if self.headingFormulaBtn.isChecked():
+            self.label.formula_mode = "heading"
+        elif self.bodyFormulaBtn.isChecked():
+            self.label.formula_mode = "body"
+        else:
+            self.label.formula_mode = "none"
+        # data
+        self.label.heading = self.headingEdit.text()
+        self.label.body = self.bodyEdit.text()
+        self.label.image_filename = self.structure_filename
+        self.label.image = self.structure
+        self.label.symbols = self.get_selected_GHS_symbols()
+        QDialog.accept(self)
+
+
+def get_text_item(text, width, font, font_size):
+    doc = QTextDocument()
+    doc.setHtml(text)
+    doc.setTextWidth(width) # for center alignment or wrapping
+    text_option = QTextOption(Qt.AlignVCenter|Qt.AlignHCenter)
+    text_option.setWrapMode(QTextOption.NoWrap)
+    doc.setDefaultTextOption(text_option)
+    font.setPixelSize(font_size)
+    doc.setDefaultFont(font)
+    orig_font_size = font_size
+    while doc.idealWidth() > width or line_count(doc)>2:
+        font_size -= 1
+        if font_size < 0.8*orig_font_size:
+            text_option.setWrapMode(QTextOption.WordWrap)
+            doc.setDefaultTextOption(text_option)
+        font.setPixelSize(font_size)
+        doc.setDefaultFont(font)
+    item = QGraphicsTextItem()
+    item.setDocument(doc)
+    item.setDefaultTextColor(Qt.black)
+    return item
+
+def line_count(doc):
+    """ returns actual visible line count in QTextDocument after word wrapping """
+    total_lines = 0
+    # Iterate through each paragraph (block)
+    block = doc.begin()
+    while block.isValid():
+        # Ensure the layout exists
+        layout = block.layout()
+        if layout:
+            total_lines += layout.lineCount()
+        block = block.next()
+
+    return total_lines
+
+# [( subscript numbers next to alphabet or bracket
+formula_num_re = "([A-Za-z)\]])(\d+)"
+
+def subscript(match):
+    return match.group(1) + "<sub>" + match.group(2) + "</sub>"
+
+# converts H2O to H<sub>2</sub>O
+def to_html(text, formula=False):
+    if formula:
+        return re.sub(formula_num_re, subscript, text)
+    return text
+
+
+def drawHtmlText(text):
+    # 1. Prepare the Pixmap
+    pixmap = QPixmap(400, 200)
+    pixmap.fill(Qt.white) # Ensure a clean background
+
+    # 2. Setup the HTML Document
+    doc = QTextDocument()
+    doc.setHtml(html_content)
+    doc.setTextWidth(pixmap.width()) # Optional: constrain width for wrapping
+
+    # 3. Draw onto the Pixmap
+    painter = QPainter(pixmap)
+    doc.drawContents(painter)
+    painter.end()
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent):
+        QDialog.__init__(self, parent)
+        self.setWindowTitle("Settings")
+        self.setWindowIcon(QIcon(":/icons/settings.png"))
+        self.pageSizeLabel = QLabel("Page Size :", self)
+        self.pageSizeCombo = QComboBox(self)
+        self.pageSizeCombo.addItems(["A4", "A5", "A6", "A7", "L", "4R", "Letter", "Custom"])
+        self.customWidthSpin = QDoubleSpinBox(self)
+        self.customWidthSpin.setDecimals(1)
+        self.customWidthSpin.setSingleStep(0.1)
+        self.customWidthSpin.setSuffix(" cm")
+        self.customWidthSpin.setRange(2, 50)
+        self.customHeightSpin = QDoubleSpinBox(self)
+        self.customHeightSpin.setDecimals(1)
+        self.customHeightSpin.setSingleStep(0.1)
+        self.customHeightSpin.setSuffix(" cm")
+        self.customHeightSpin.setRange(2, 50)
+        self.marginLabel = QLabel("Margin :", self)
+        self.marginSpin = QDoubleSpinBox(self)
+        self.marginSpin.setDecimals(1)
+        self.marginSpin.setSingleStep(0.1)
+        self.marginSpin.setSuffix(" mm")
+        self.marginSpin.setRange(0, 30)
+        self.spacingLabel = QLabel("Spacing :", self)
+        self.spacingSpin = QDoubleSpinBox(self)
+        self.spacingSpin.setDecimals(1)
+        self.spacingSpin.setSingleStep(0.1)
+        self.spacingSpin.setSuffix(" mm")
+        self.spacingSpin.setRange(1, 30)
+        self.btnBox = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel, parent=self)
+        layout = QGridLayout(self)
+        layout.addWidget(self.pageSizeLabel, 0,0)
+        layout.addWidget(self.pageSizeCombo, 0,1)
+        layout.addWidget(self.customWidthSpin, 1,0)
+        layout.addWidget(self.customHeightSpin, 1,1)
+        layout.addWidget(self.marginLabel, 2,0)
+        layout.addWidget(self.marginSpin, 2,1)
+        layout.addWidget(self.spacingLabel, 3,0)
+        layout.addWidget(self.spacingSpin, 3,1)
+        layout.addWidget(self.btnBox, 4,0,1,2)
+        # connect signals
+        self.pageSizeCombo.currentIndexChanged[str].connect(self.onPageSizeChange)
+        self.btnBox.accepted.connect(self.accept)
+        self.btnBox.rejected.connect(self.reject)
+        # init values
+        self.customWidthSpin.setVisible(False)
+        self.customHeightSpin.setVisible(False)
+
+    def onPageSizeChange(self, val):
+        self.customWidthSpin.setVisible(val=="Custom")
+        self.customHeightSpin.setVisible(val=="Custom")
+
+    def getValues(self):
+        page_size = self.pageSizeCombo.currentText()
+        custom_w = self.customWidthSpin.value()
+        custom_h = self.customHeightSpin.value()
+        margin = self.marginSpin.value()
+        spacing = self.spacingSpin.value()
+        return page_size, (custom_w, custom_h), margin, spacing
+
+    def setValues(self, page_size, custom_size, margin, spacing):
+        self.pageSizeCombo.setCurrentIndex(self.pageSizeCombo.findText(page_size))
+        self.customWidthSpin.setValue(custom_size[0])
+        self.customHeightSpin.setValue(custom_size[1])
+        self.marginSpin.setValue(margin)
+        self.spacingSpin.setValue(spacing)
+
+
+
+
+import sys
+from PyQt5.QtWidgets import QApplication
+import resources_rc
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    dlg = LabelPrintDialog()
+    dlg.show()
+    sys.exit(app.exec())
