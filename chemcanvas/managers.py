@@ -27,7 +27,7 @@ class AutosaveManager(QObject):
         self.lockfile = None
         self.lock_dir = self.autosave_dir
         if os.path.exists("/.flatpak-info"):
-            self.lock_dir = QStandardPaths.writableLocation(QStandardPaths.TempLocation)
+            self.lock_dir = QStandardPaths.writableLocation(QStandardPaths.RuntimeLocation)
         # timer that triggers autosave_all
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.autosave_all)
@@ -66,7 +66,8 @@ class AutosaveManager(QObject):
                 self.lockfile = QLockFile(lock_path)
                 self.lockfile.setStaleLockTime(0)
                 if not self.lockfile.tryLock(0):
-                    print("could not lock file", lock_path)
+                    err_code = self.lockfile.error()
+                    print(f"Error {err_code} : could not lock file {lock_path}")
         except Exception as e:
             print(e)
 
