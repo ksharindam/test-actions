@@ -1,0 +1,29 @@
+name: Build Snap
+on:
+  workflow_dispatch:
+  #push:
+  #release:
+  #  types: [published]
+
+# required for uploading assets
+permissions:
+  contents: write
+
+jobs:
+  Snap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Snap
+        uses: snapcore/action-build@v1
+        id: build-snap
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Snap-Package
+          path: ${{ steps.build-snap.outputs.snap }}
+          retention-days: 2
+

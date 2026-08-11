@@ -59,6 +59,9 @@
     <file>icons/delete.png</file>
     <file>icons/drag.png</file>
     <file>icons/duplicate.png</file>
+    <file>icons/dxy-orbital.png</file>
+    <file>icons/dz2-orbital.png</file>
+    <file>icons/edit-clear.png</file>
     <file>icons/edit.png</file>
     <file>icons/edit-redo.png</file>
     <file>icons/edit-undo.png</file>
@@ -70,14 +73,17 @@
     <file>icons/lonepair.png</file>
     <file>icons/move.png</file>
     <file>icons/new-file.png</file>
+    <file>icons/new-tab.png</file>
     <file>icons/open.png</file>
     <file>icons/pdf.png</file>
     <file>icons/plus-arrow.png</file>
+    <file>icons/p-orbital.png</file>
     <file>icons/print.png</file>
     <file>icons/pubchem.png</file>
     <file>icons/quit.png</file>
     <file>icons/radical.png</file>
     <file>icons/reagent.png</file>
+    <file>icons/recents.png</file>
     <file>icons/rect.png</file>
     <file>icons/rotate3d.png</file>
     <file>icons/rotate.png</file>
@@ -88,6 +94,7 @@
     <file>icons/select-rectangular.png</file>
     <file>icons/settings.png</file>
     <file>icons/shapes.png</file>
+    <file>icons/s-orbital.png</file>
     <file>icons/subscript.png</file>
     <file>icons/superscript.png</file>
     <file>icons/text.png</file>

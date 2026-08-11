@@ -57,6 +57,15 @@ class Font:
         self.italic = False
 
 
+class Layer:
+    """ ZValue for various items of Canvas """
+    GRAPHICS_TOP_LAYER = 4
+    BOND_LAYER = -2
+    SELECTION_LAYER = -3
+    GRAPHICS_BOTTOM_LAYER = -4
+    PAGE_BACKGROUND_LAYER = -10
+
+
 # Subclass of this class are ...
 # Molecule
 #        |- Atom
@@ -79,7 +88,7 @@ class DrawableObject:
     meta__scalables = ()# list of objects which are affected by scaling
 
     def __init__(self):
-        self.paper = None
+        self.canvas = None
         self.color = (0,0,0)
         # Top level objects will have scale value, and children will
         # use their parent's scale value.
@@ -140,20 +149,20 @@ class DrawableObject:
 
     def mark_dirty(self):
         """ mark as redraw needed """
-        if self.paper:
-            self.paper.dirty_objects.add(self)
+        if self.canvas:
+            self.canvas.dirty_objects.add(self)
 
-    def delete_from_paper(self):
+    def delete_from_canvas(self):
         """ unfocus, deselect, unmap focusable, clear graphics"""
-        if not self.paper:
+        if not self.canvas:
             return
-        if self in self.paper.dirty_objects:
-            self.paper.dirty_objects.remove(self)
-        self.paper.unfocusObject(self)
-        self.paper.deselectObject(self)
+        if self in self.canvas.dirty_objects:
+            self.canvas.dirty_objects.remove(self)
+        self.canvas.unfocusObject(self)
+        self.canvas.deselectObject(self)
         self.clear_drawings()
         if self.is_toplevel:
-            self.paper.removeObject(self)
+            self.canvas.removeObject(self)
 
 
 class Align:

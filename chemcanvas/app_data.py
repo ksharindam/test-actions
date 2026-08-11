@@ -11,10 +11,12 @@ from PyQt5.QtGui import QIcon, QPixmap
 class App:
     """ Stores application wide data """
     window = None
-    paper = None # selected current paper
+    canvas = None # selected current canvas
     tool = None # selected current tool
     template_manager = None # created only once
     SRC_DIR = os.path.dirname(__file__)
+    # returns paths by Qt contains / as separator even in Windows OS.
+    # so / separator everywhere instead of os.path.join
     DATA_DIR = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation) + "/ChemCanvas"
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
@@ -36,9 +38,9 @@ class Default:
 
 class Settings:
     """ settings for some properties """
-    # these settings below are fixed, and can not be changed
-    basic_scale = 1.0# ratio of screen dpi and render dpi
-    render_dpi = 100 # resolution at which object on Paper is rendered
+    basic_scale = 1.0 # ratio of screen dpi and render dpi
+    render_dpi = 100 # resolution at which object on Canvas is rendered
+    show_carbon = "Terminal"
     atom_font_name = "Sans Serif"
     coord_head_dimensions = 6, 2.5, 2
     min_arrow_length = 30 # 0.762cm
@@ -47,6 +49,14 @@ class Settings:
     selection_color = (150,150,255)
     image_export_dpi = 100
     image_export_margin = 10
+    image_export_background = "transparent" # transparent or hexcolor
+    new_page_size = (826,1169)
+    new_page_margins = (0,0,0,0)
+    show_page_grid = False
+    page_grid_spacing = 20
+    page_grid_major_every = 5
+    autosave = True
+    autosave_interval = 60 # seconds
 
 # initialize Settings with Default values. (subclassing 'Default' class does not work properly)
 for key,val in dict(vars(Default)).items():

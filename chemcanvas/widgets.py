@@ -17,7 +17,7 @@ from PyQt5.QtGui import (QPainter, QPixmap, QColor, QDesktopServices, QPen, QIco
 from PyQt5.QtWidgets import ( QApplication, QDialog, QDialogButtonBox, QGridLayout,
     QLineEdit, QPushButton, QToolButton, QLabel, QApplication, QSizePolicy,
     QTextEdit, QWidget, QHBoxLayout, QLayout,
-    QComboBox, QScrollArea, QVBoxLayout, QStyle,
+    QScrollArea, QVBoxLayout, QStyle,
     QWidgetAction, QRadioButton, QColorDialog, QFontComboBox
 )
 
@@ -670,8 +670,8 @@ class TextEdit(QDialog):
 
     """def popupAt(self, x, y):
         # height is not yet calculated, so move this dialog in showEvent
-        view_pos = App.paper.view.mapFromScene(x,y)
-        self.popup_at = App.paper.view.mapToGlobal(view_pos)
+        view_pos = App.canvas.view.mapFromScene(x,y)
+        self.popup_at = App.canvas.view.mapToGlobal(view_pos)
 
     def showEvent(self, ev):
         self.move(self.popup_at - QPoint(0,self.height()))

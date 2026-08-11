@@ -1,9 +1,10 @@
-name: Build Packages
+name: Build AppImage
 
 on:
+  workflow_dispatch:
   #push:
-  release:
-    types: [published]
+  #release:
+  #  types: [published]
 
 # required for uploading assets
 permissions:
@@ -33,9 +34,10 @@ jobs:
           cd AppImage
           bash -ex build-in-docker.sh
 
-      - name: Upload installer artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhotoQuick-AppImage
-          path: "AppImage/PhotoQuick*.AppImage"
+          name: AppImage-Bundle
+          path: "AppImage/ChemCanvas*.AppImage"
           retention-days: 2
+

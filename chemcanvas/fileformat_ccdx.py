@@ -8,13 +8,13 @@ from delocalization import Delocalization
 from arrow import Arrow
 from bracket import Bracket
 from text import Text, Plus
-from shapes import Line, Rectangle, Ellipse
+from shapes import Line, Rectangle, Ellipse, Orbital
 from fileformat import *
 
 import io
 from xml.dom import minidom
 
-
+# Note : ccdx uses point as unit of page size and object coordinates
 
 class Ccdx(FileFormat):
     readable_formats = [("ChemCanvas Drawing XML", "ccdx")]
@@ -44,29 +44,35 @@ class Ccdx(FileFormat):
     def scaled(self, x):
         return x * self.coord_multiplier
 
-    def scaled_coord(self, coords):
-        return tuple(x*self.coord_multiplier for x in coords)
+    def map_coord(self, coord):
+        return tuple((x-self.offset[i])*self.coord_multiplier for i,x in enumerate(coord))
 
 
     # -----------------------------------------------------------------
     # --------------------------- READ -------------------------------
     # -----------------------------------------------------------------
 
-    def read(self, filename):
+    def init_reading(self):
+        # init reading
         self.reset()
         self.coord_multiplier = Settings.render_dpi/72# point to px conversion factor
+        self.offset = (0,0,0)
+        self.doc = Document()
+
+    def read(self, filename):
         dom_doc = minidom.parse(filename)
         # read root element
         ccdxs = dom_doc.getElementsByTagName("ccdx")
         if not ccdxs:
+            self.status = "failed"
             self.message = "File has no ccdx element !"
             return
-        self.doc = Document()
+        self.init_reading()
         try:
             #version = ccdxs[0].getAttribute("version")
             self.readCcdx(ccdxs[0])
             self.status = "ok"
-            return self.doc.objects and self.doc or None
+            return self.doc if self.doc.pages else None
         except FileError as e:
             self.message = str(e)
             return
@@ -77,11 +83,21 @@ class Ccdx(FileFormat):
         page_size = element.getAttribute("page_size")
         if page_size:
             w, h = page_size.split(",")
-            self.doc.set_page_size(float(w), float(h))
+            self.doc.set_page_size_pt(float(w), float(h))
         else:
-            self.doc.set_page_size(595,842) # a4 size is default
+            self.doc.set_page_size_pt(595,842) # a4 size is default
+        # read pages
+        page_elms = element.getElementsByTagName("page")
+        if page_elms:
+            for elm in page_elms:
+                self.readPage(elm)
+        else:
+            self.readPage(element)
 
-        for objtype in ("Molecule", "Arrow", "Plus", "Text", "Bracket", "Shape"):
+    def readPage(self, element):
+        """ the element can be a page element, or ccdx element (in older ccdx format) """
+        page = self.doc.add_new_page()
+        for objtype in ("Molecule", "Arrow", "Plus", "Text", "Bracket", "Shape", "Orbital"):
             elms = element.getElementsByTagName(objtype.lower())
             for elm in elms:
                 obj = getattr(self, "read%s" % objtype)(elm)
@@ -89,7 +105,8 @@ class Ccdx(FileFormat):
                     scale_val = elm.getAttribute("scale")
                     if scale_val:
                         obj.scale_val = float(scale_val)
-                    self.doc.objects.append(obj)
+                    page.objects.append(obj)
+        return page
 
     def readMolecule(self, element):
         molecule = Molecule()
@@ -128,7 +145,7 @@ class Ccdx(FileFormat):
         # read postion
         if pos:
             pos = list(map(float, pos.split(",")))
-            atom.x, atom.y = self.scaled_coord(pos[:2])
+            atom.x, atom.y = self.map_coord(pos[:2])
             if len(pos)==3:
                 atom.z = self.scaled(pos[2])
         # isotope
@@ -237,7 +254,7 @@ class Ccdx(FileFormat):
         if coords:
             try:
                 coords = [pt.split(",") for pt in coords.split(" ")]
-                arrow.points = [self.scaled_coord((float(pt[0]), float(pt[1]))) for pt in coords]
+                arrow.points = [self.map_coord((float(pt[0]), float(pt[1]))) for pt in coords]
             except:
                 return
         # color
@@ -257,7 +274,7 @@ class Ccdx(FileFormat):
         pos, font_size, color = map(element.getAttribute, ("pos", "size", "color"))
         # postion
         if pos:
-            plus.x, plus.y = self.scaled_coord(map(float, pos.split(",") ))
+            plus.x, plus.y = self.map_coord(map(float, pos.split(",") ))
         # font size
         if font_size:
             plus.font_size = self.scaled(float(font_size))
@@ -274,7 +291,7 @@ class Ccdx(FileFormat):
             "pos", "text", "font", "size", "color"))
         # pos
         if pos:
-            text.x, text.y = self.scaled_coord(map(float, pos.split(",") ))
+            text.x, text.y = self.map_coord(map(float, pos.split(",") ))
         # text string
         if text_str:
             text.text = text_str.replace("<br>", "\n")
@@ -301,7 +318,7 @@ class Ccdx(FileFormat):
         if coords:
             try:
                 coords = [pt.split(",") for pt in coords.split(" ")]
-                bracket.points = [self.scaled_coord((float(pt[0]), float(pt[1]))) for pt in coords]
+                bracket.points = [self.map_coord((float(pt[0]), float(pt[1]))) for pt in coords]
             except:
                 return
         # color
@@ -323,7 +340,7 @@ class Ccdx(FileFormat):
         if coords:
             try:
                 coords = [pt.split(",") for pt in coords.split(" ")]
-                shape.points = [self.scaled_coord((float(pt[0]), float(pt[1]))) for pt in coords]
+                shape.points = [self.map_coord((float(pt[0]), float(pt[1]))) for pt in coords]
             except:
                 return
         # layer
@@ -341,6 +358,26 @@ class Ccdx(FileFormat):
 
         return shape
 
+
+    def readOrbital(self, element):
+        orbital = Orbital()
+        type, size, rotation, pos, layer = map(element.getAttribute, ("type", "size",
+                "rotation", "pos", "layer"))
+        # type
+        orbital.type = type
+        # position
+        if pos:
+            orbital.x, orbital.y = self.map_coord(map(float, pos.split(",") ))
+        # size
+        if size:
+            orbital.lobe_size = int(size)/2
+        # rotation
+        if rotation:
+            orbital.rotation = int(rotation)
+        # layer
+        if layer=="top":
+            orbital.layer = 1
+        return orbital
 
 
 
@@ -369,16 +406,12 @@ class Ccdx(FileFormat):
         # set attributes
         root.setAttribute("version", "1.1")
         self.coord_multiplier = 72/Settings.render_dpi # px to point converter
-        w, h = doc.page_size()
+        w, h = doc.page_size_pt
         if w!=595 and h!=842:# do not save default page size
             root.setAttribute("page_size", ",".join(map(float_to_str, (w,h))))
         try:
-            # write objects
-            for obj in doc.objects:
-                elm = self.createObjectNode(obj, root)
-                if obj.scale_val!=1.0:
-                    elm.setAttribute("scale", float_to_str(obj.scale_val))
-
+            for page in doc.pages:
+                self.createPageNode(page, root)
             # set generated ids
             for obj,id in self.obj_to_id.items():
                 self.obj_element_map[obj].setAttribute("id", id)
@@ -388,6 +421,16 @@ class Ccdx(FileFormat):
         except FileError as e:
             self.message = str(e)
             return
+
+    def createPageNode(self, page, parent):
+        page_elm = parent.ownerDocument.createElement("page")
+        parent.appendChild(page_elm)
+        self.offset = (*page.pos, 0) # 3d offset of object mapping to page
+        # write objects
+        for obj in page.objects:
+            elm = self.createObjectNode(obj, page_elm)
+            if obj.scale_val!=1.0:
+                elm.setAttribute("scale", float_to_str(obj.scale_val))
 
 
     def createObjectNode(self, obj, parent):
@@ -421,7 +464,7 @@ class Ccdx(FileFormat):
         elm.setAttribute("symbol", atom.symbol)
         # atom pos in "x,y" or "x,y,z" format
         pos = atom.z and atom.pos3d or atom.pos
-        pos = map(float_to_str, self.scaled_coord(pos))
+        pos = map(float_to_str, self.map_coord(pos))
         elm.setAttribute("pos", ",".join(pos))
         # isotope
         if atom.isotope:
@@ -488,7 +531,7 @@ class Ccdx(FileFormat):
         elm = parent.ownerDocument.createElement("arrow")
         if arrow.type!="normal":
             elm.setAttribute("type", arrow.type)
-        points = [",".join(map(float_to_str, self.scaled_coord(pt))) for pt in arrow.points]
+        points = [",".join(map(float_to_str, self.map_coord(pt))) for pt in arrow.points]
         elm.setAttribute("coords", " ".join(points))
         # electron source and dest
         if arrow.type in ("electron_flow", "fishhook"):
@@ -505,7 +548,7 @@ class Ccdx(FileFormat):
 
     def createPlusNode(self, plus, parent):
         elm = parent.ownerDocument.createElement("plus")
-        pos = self.scaled_coord((plus.x,plus.y))
+        pos = self.map_coord((plus.x,plus.y))
         elm.setAttribute("pos", ",".join(map(float_to_str, pos)))
         elm.setAttribute("size", float_to_str(self.scaled(plus.font_size)))
         # color
@@ -516,7 +559,7 @@ class Ccdx(FileFormat):
 
     def createTextNode(self, text, parent):
         elm = parent.ownerDocument.createElement("text")
-        pos = self.scaled_coord((text.x,text.y))
+        pos = self.map_coord((text.x,text.y))
         elm.setAttribute("pos", ",".join(map(float_to_str, pos)))
         elm.setAttribute("text", text.text.replace("\n", "<br>"))
         elm.setAttribute("font", text.font_name)
@@ -531,7 +574,7 @@ class Ccdx(FileFormat):
     def createBracketNode(self, bracket, parent):
         elm = parent.ownerDocument.createElement("bracket")
         elm.setAttribute("type", bracket.type)
-        points = [self.scaled_coord(p) for p in bracket.points]
+        points = [self.map_coord(p) for p in bracket.points]
         points = [",".join(map(float_to_str, p)) for p in points]
         elm.setAttribute("coords", " ".join(points))
         # color
@@ -544,7 +587,7 @@ class Ccdx(FileFormat):
     def createShapeNode(self, shape, parent, shape_type):
         elm = parent.ownerDocument.createElement("shape")
         elm.setAttribute("type", shape_type)
-        points = [self.scaled_coord(p) for p in shape.points]
+        points = [self.map_coord(p) for p in shape.points]
         points = [",".join(map(float_to_str, p)) for p in points]
         elm.setAttribute("coords", " ".join(points))
         # layer
@@ -572,4 +615,18 @@ class Ccdx(FileFormat):
     def createEllipseNode(self, ellipse, parent):
         self.createShapeNode(ellipse, parent, "ellipse")
 
+    def createOrbitalNode(self, orbital, parent):
+        elm = parent.ownerDocument.createElement("orbital")
+        elm.setAttribute("type", orbital.type)
+        elm.setAttribute("size", str(int(2*orbital.lobe_size)))
+        pos = self.map_coord((orbital.x,orbital.y))
+        elm.setAttribute("pos", ",".join(map(float_to_str, pos)))
+        if orbital.rotation:
+            elm.setAttribute("rotation", float_to_str(orbital.rotation))
+        # layer
+        layer = {1:"top", -1:"bottom"}.get(orbital.layer, "bottom")
+        if layer=="top":
+            elm.setAttribute("layer", "top")
 
+        parent.appendChild(elm)
+        return elm

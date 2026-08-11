@@ -21,15 +21,21 @@
     <property name="spacing">
      <number>0</number>
     </property>
-    <item row="1" column="1">
-     <widget class="QGraphicsView" name="graphicsView">
-      <property name="alignment">
-       <set>Qt::AlignCenter</set>
+    <item row="2" column="1">
+     <widget class="QTabWidget" name="tabWidget">
+      <property name="documentMode">
+       <bool>true</bool>
+      </property>
+      <property name="tabsClosable">
+       <bool>true</bool>
+      </property>
+      <property name="movable">
+       <bool>true</bool>
       </property>
      </widget>
     </item>
-    <item row="1" column="2">
-     <widget class="QFrame" name="rightFrame">
+    <item row="1" column="0" rowspan="2">
+     <widget class="QFrame" name="leftFrame">
       <property name="frameShape">
        <enum>QFrame::StyledPanel</enum>
       </property>
@@ -38,8 +44,8 @@
       </property>
      </widget>
     </item>
-    <item row="1" column="0">
-     <widget class="QFrame" name="leftFrame">
+    <item row="1" column="2" rowspan="2">
+     <widget class="QFrame" name="rightFrame">
       <property name="frameShape">
        <enum>QFrame::StyledPanel</enum>
       </property>
@@ -76,11 +82,23 @@
      <addaction name="actionSvgEditable"/>
      <addaction name="actionImageExportSettings"/>
     </widget>
+    <widget class="QMenu" name="openRecentMenu">
+     <property name="title">
+      <string>Open Recent</string>
+     </property>
+     <property name="icon">
+      <iconset resource="resources.qrc">
+       <normaloff>:/icons/recents.png</normaloff>:/icons/recents.png</iconset>
+     </property>
+    </widget>
     <addaction name="actionOpen"/>
+    <addaction name="actionOpenInNewTab"/>
+    <addaction name="openRecentMenu"/>
     <addaction name="actionSave"/>
     <addaction name="actionSaveAs"/>
     <addaction name="actionSaveAsPDF"/>
     <addaction name="menuExportImage"/>
+    <addaction name="actionPageSetup"/>
     <addaction name="actionTemplateManager"/>
     <addaction name="actionQuit"/>
    </widget>
@@ -120,9 +138,18 @@
     </widget>
     <addaction name="actionDrawingSettings"/>
     <addaction name="menuShow_Carbon"/>
+    <addaction name="actionAutosaveSettings"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <addaction name="actionShowGrid"/>
+    <addaction name="actionGridSettings"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
+   <addaction name="menuView"/>
    <addaction name="menuTools"/>
    <addaction name="menuSettings"/>
    <addaction name="menuHelp"/>
@@ -264,6 +291,10 @@
    </property>
   </action>
   <action name="actionDrawingSettings">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/bond-wavy.png</normaloff>:/icons/bond-wavy.png</iconset>
+   </property>
    <property name="text">
     <string>Drawing Settings</string>
    </property>
@@ -325,6 +356,57 @@
    </property>
    <property name="text">
     <string>Print Reagent Label</string>
+   </property>
+  </action>
+  <action name="actionPageSetup">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/settings.png</normaloff>:/icons/settings.png</iconset>
+   </property>
+   <property name="text">
+    <string>Page Setup</string>
+   </property>
+  </action>
+  <action name="actionShowGrid">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Show Grid</string>
+   </property>
+  </action>
+  <action name="actionGridSettings">
+   <property name="text">
+    <string>Grid Settings ...</string>
+   </property>
+  </action>
+  <action name="actionNewTab">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/new-tab.png</normaloff>:/icons/new-tab.png</iconset>
+   </property>
+   <property name="text">
+    <string>New Tab</string>
+   </property>
+   <property name="toolTip">
+    <string>New Tab</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+T</string>
+   </property>
+  </action>
+  <action name="actionOpenInNewTab">
+   <property name="icon">
+    <iconset resource="resources.qrc">
+     <normaloff>:/icons/open.png</normaloff>:/icons/open.png</iconset>
+   </property>
+   <property name="text">
+    <string>Open in New Tab</string>
+   </property>
+  </action>
+  <action name="actionAutosaveSettings">
+   <property name="text">
+    <string>AutoSave Settings</string>
    </property>
   </action>
  </widget>

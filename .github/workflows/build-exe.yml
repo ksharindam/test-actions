@@ -1,0 +1,47 @@
+name: Build Exe
+
+on:
+  workflow_dispatch:
+  #push:
+  #release:
+  #  types: [published]
+
+# required for uploading assets
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8.7'
+
+      - name: Install Dependencies
+        run: |
+          pip3 install PyQt5
+          pip3 install pyinstaller
+
+      - name: Build ChemCanvas
+        run: |
+          pyrcc5 -o ./chemcanvas/resources_rc.py ./data/resources.qrc
+          pyuic5 -o ./chemcanvas/ui_mainwindow.py ./data/mainwindow.ui
+          cd Windows
+          pyinstaller chemcanvas.spec
+
+      - name: Create Exe Installer
+        uses: joncloud/makensis-action@v5.0
+        with:
+          script-file: ./Windows/ChemCanvas.nsi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Installer
+          path: ./windows/*.exe
+          retention-days: 2
+

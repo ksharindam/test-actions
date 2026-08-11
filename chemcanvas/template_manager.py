@@ -18,7 +18,7 @@ from app_data import App, Settings
 from document import Document
 from fileformats import Ccdx, Molfile
 from widgets import FlowLayout, PixmapButton, SearchBox, wait
-from paper import Paper
+from canvas import Canvas
 import geometry as geo
 from tool_helpers import place_molecule, remove_explicit_hydrogens
 
@@ -74,7 +74,7 @@ class TemplateManager:
         if not doc:
             return []
         templates = []
-        mols = [obj for obj in doc.objects if obj.class_name=="Molecule"]
+        mols = [obj for obj in doc.pages[0].objects if obj.class_name=="Molecule"]
         for mol in mols:
             if mol.name and mol.template_atom and mol.template_bond:
                 templates.append(mol)
@@ -149,7 +149,7 @@ class TemplateManager:
         #    if b.order != 1:
         #        b.second_line_distance *= scale_ratio
         # update template according to current default values
-        #App.paper.applyDefaultProperties( [temp], template_mode=1)
+        #App.canvas.applyDefaultProperties( [temp], template_mode=1)
         return template
 
 
@@ -175,7 +175,8 @@ class TemplateManager:
             doc = ccdx.read(filename)
             if not doc:
                 doc = Document()
-            doc.objects.append(template_mol)
+                doc.add_new_page()
+            doc.pages[0].objects.append(template_mol)
             ccdx.write(doc, filename)
             self.add_to_extended_templates([template_mol])
 
@@ -251,9 +252,9 @@ class TemplateManagerDialog(QDialog):
 
         filename = self.filenameCombo.itemData(self.filenameCombo.currentIndex())
         templates = App.template_manager.read_templates_file(filename)
-        paper = Paper()
+        canvas = Canvas()
         for template in templates:
-            thumbnail = paper.renderObjects([template])
+            thumbnail = canvas.renderObjects([template])
             btn = TemplateButton(template.name, thumbnail, self.scrollWidget)
             self.scrollLayout.addWidget(btn)
             btn.clicked.connect(self.onTemplateClick)
@@ -313,7 +314,8 @@ class TemplateManagerDialog(QDialog):
             btn.deleteLater()
 
         doc = Document()
-        doc.objects = [btn.template for btn in self.template_buttons]
+        page = doc.add_new_page()
+        page.objects += [btn.template for btn in self.template_buttons]
         filename = self.filenameCombo.itemData(self.filenameCombo.currentIndex())
         ccdx = Ccdx()
         if not ccdx.write(doc, filename):
@@ -432,11 +434,11 @@ class TemplateChooserDialog(QDialog):
         self.template_buttons = []
         self.selected_button = None
         self.btnBox.button(QDialogButtonBox.Ok).setEnabled(False)# can not accept if no template is selected
-        paper = Paper()
+        canvas = Canvas()
         #for template in templates:
         for title in titles:
             template = App.template_manager.templates[title]
-            thumbnail = paper.renderObjects([template])
+            thumbnail = canvas.renderObjects([template])
             btn = TemplateButton(template.name, thumbnail, self.scrollWidget)
             self.scrollLayout.addWidget(btn)
             btn.clicked.connect(self.onTemplateClick)
@@ -713,12 +715,12 @@ class TemplateSearchWidget(QWidget):
         reader = Molfile()
         doc = reader.readFromString(result)
         if doc:
-            objs = doc.objects
+            objs = doc.pages[0].objects
             for obj in objs:
                 remove_explicit_hydrogens(obj)
                 obj.name = obj.data["PUBCHEM_IUPAC_NAME"]
                 obj.data = None
-            self.showTemplates( doc.objects)
+            self.showTemplates( doc.pages[0].objects)
 
     def showTemplates(self, templates):
         """ add list of templates to table. templates is a list of either te """
@@ -751,8 +753,8 @@ class TemplateSearchWidget(QWidget):
             self.thumbnail.setPixmap(pm)
             return
         template = items[0].data(Qt.UserRole)
-        paper = Paper()
-        img = paper.renderObjects([template])
+        canvas = Canvas()
+        img = canvas.renderObjects([template])
         if img.width()>pm.width() or img.height()>pm.height():
             img = img.scaled(pm.width(),pm.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         painter = QPainter(pm)
